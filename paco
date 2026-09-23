@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# paco - runs francinette against the project in the current directory.
+#
+# Native mode: this is a thin exec into francinette/tester.sh, nothing else
+# happens - there is no container to manage.
+#
+# Docker mode: the runner container is started lazily on first use and left
+# running (like a dev-container) so every subsequent call is just a fast
+# `docker exec`, instead of paying container-startup cost on every command.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+INSTALL_DIR="$(dirname "$SCRIPT_DIR")"
+MODE_FILE="$SCRIPT_DIR/.mode"
+IMAGE_NAME="paco-francinette"
+CONTAINER_NAME="paco-runner"
+
+if [ ! -f "$MODE_FILE" ]; then
+	echo "paco: not installed correctly (missing $MODE_FILE). Re-run install.sh." >&2
+	exit 1
+fi
+MODE="$(cat "$MODE_FILE")"
+
+if [ "$MODE" = "native" ]; then
+	FRANCINETTE_DIR="$INSTALL_DIR/francinette"
+	if [ ! -x "$FRANCINETTE_DIR/tester.sh" ]; then
+		echo "paco: francinette is not installed in $FRANCINETTE_DIR. Re-run install.sh." >&2
+		exit 1
+	fi
+	exec "$FRANCINETTE_DIR/tester.sh" "$@"
+fi
+
+# --- docker mode ---
+if ! command -v docker >/dev/null 2>&1; then
+	echo "paco: docker is required but was not found in PATH." >&2
+	exit 1
+fi
+
+if ! docker info >/dev/null 2>&1; then
+	echo "paco: the Docker daemon is not running (or not reachable). Start Docker Desktop / the docker service and try again." >&2
+	exit 1
+fi
+
+if ! docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; then
+	echo "paco: building the runner image (first run only, this takes a few minutes)..." >&2
+	docker build -t "$IMAGE_NAME" "$SCRIPT_DIR"
+fi
+
+mkdir -p "$SCRIPT_DIR/logs" "$SCRIPT_DIR/temp"
+
+container_exists() {
+	docker ps -a --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"
+}
+container_running() {
+	docker ps --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"
+}
+
+if ! container_running; then
+	if container_exists; then
+		docker start "$CONTAINER_NAME" >/dev/null
+	else
+		mount_args=(-v "$HOME:$HOME")
+		[ -d /goinfre ] && mount_args+=(-v /goinfre:/goinfre)
+		[ -d /sgoinfre ] && mount_args+=(-v /sgoinfre:/sgoinfre)
+		docker run -d \
+			--name "$CONTAINER_NAME" \
+			"${mount_args[@]}" \
+			-v "$SCRIPT_DIR/logs:/francinette/logs" \
+			-v "$SCRIPT_DIR/temp:/francinette/temp" \
+			--entrypoint /bin/sleep \
+			"$IMAGE_NAME" infinity >/dev/null
+	fi
+fi
+
+case "$PWD" in
+	"$HOME"/*|"$HOME") ;;
+	/goinfre/*|/sgoinfre/*) ;;
+	*)
+		echo "paco: warning: $PWD is outside \$HOME (and outside /goinfre, /sgoinfre)," >&2
+		echo "      it is not visible inside the container. Run paco from a project under \$HOME." >&2
+		;;
+esac
+
+exec_flags=(-i)
+if [ -t 0 ] && [ -t 1 ]; then
+	exec_flags=(-it)
+fi
+
+exec docker exec "${exec_flags[@]}" --workdir "$PWD" "$CONTAINER_NAME" python3 /francinette/main.py "$@"
