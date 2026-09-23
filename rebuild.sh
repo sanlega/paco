@@ -4,11 +4,11 @@
 # francinette checkout and reinstalls it.
 set -euo pipefail
 
-BLUE='\033[0;36m'
-WHITE='\033[0;37m'
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-NC='\033[0m'
+BLUE=$'\033[0;36m'
+WHITE=$'\033[0;37m'
+GREEN=$'\033[0;32m'
+RED=$'\033[0;31m'
+NC=$'\033[0m'
 log() { printf "${BLUE}[paco]${NC} ${WHITE}%s${NC}\n" "$1"; }
 die() { printf "${BLUE}[paco]${NC} ${RED}%s${NC}\n" "$1" >&2; exit 1; }
 
@@ -19,6 +19,7 @@ if [ -z "${INSTALL_DIR:-}" ]; then
 		read -r -p "Install directory used by paco: " INSTALL_DIR
 	fi
 fi
+[ -d "$INSTALL_DIR" ] && INSTALL_DIR="$(cd "$INSTALL_DIR" && pwd)"
 
 PACO_DIR="$INSTALL_DIR/paco"
 [ -d "$PACO_DIR" ] || die "paco is not installed in $PACO_DIR. Run install.sh first."

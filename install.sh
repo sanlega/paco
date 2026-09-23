@@ -16,13 +16,13 @@ set -euo pipefail
 REPO_URL="https://github.com/sanlega/paco.git"
 FRANCINETTE_URL="https://github.com/xicodomingues/francinette.git"
 
-WHITE='\033[0;37m'
-BLUE='\033[0;36m'
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-YELLOW='\033[0;33m'
-B_WHITE='\033[1;37m'
-NC='\033[0m'
+WHITE=$'\033[0;37m'
+BLUE=$'\033[0;36m'
+GREEN=$'\033[0;32m'
+RED=$'\033[0;31m'
+YELLOW=$'\033[0;33m'
+B_WHITE=$'\033[1;37m'
+NC=$'\033[0m'
 
 log()  { printf "${BLUE}[paco]${NC} %s\n" "$1"; }
 ok()   { printf "${BLUE}[paco]${NC} ${WHITE}%s ${GREEN}OK${NC}\n" "$1"; }
@@ -34,8 +34,13 @@ if [ -z "${INSTALL_DIR:-}" ]; then
 	read -r -p "Install directory (default: $default_dir): " user_input
 	INSTALL_DIR="${user_input:-$default_dir}"
 fi
-export INSTALL_DIR
 mkdir -p "$INSTALL_DIR"
+# Resolve to an absolute path: the script later does 'cd' (e.g. into
+# francinette to pip install), and every relative path built from
+# INSTALL_DIR before that point would silently resolve against whatever
+# directory that 'cd' left us in instead.
+INSTALL_DIR="$(cd "$INSTALL_DIR" && pwd)"
+export INSTALL_DIR
 
 PACO_DIR="$INSTALL_DIR/paco"
 FRANCINETTE_DIR="$INSTALL_DIR/francinette"
