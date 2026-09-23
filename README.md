@@ -36,12 +36,12 @@ its biggest problem: the Docker image was **2.5 GB**.
 One command, no prompts:
 
 ```shell
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/sanlega/paco/<branch>/install.sh)"
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/sanlega/paco/main/install.sh)"
 ```
 
-Replace `<branch>` with this repo's default branch. It installs into `$HOME` by default (export
-`INSTALL_DIR=/some/path` first to use a different location), figures out on its own whether to
-go native or Docker, and wires up the `paco` and `francinette` commands in your shell.
+It installs into `$HOME` by default (export `INSTALL_DIR=/some/path` first to use a different
+location), figures out on its own whether to go native or Docker, and wires up the `paco` and
+`francinette` commands in your shell.
 
 ## Usage
 
@@ -60,7 +60,7 @@ a 42 campus machine) for the container to see it.
 ## Uninstall / update / rebuild
 
 ```shell
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/sanlega/paco/<branch>/uninstall.sh)"
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/sanlega/paco/main/uninstall.sh)"
 ```
 
 Once installed, `update.sh` pulls the latest version (of paco, and of francinette in native
