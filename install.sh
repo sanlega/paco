@@ -117,7 +117,6 @@ if [ "$MODE" = "native" ]; then
 			die "Could not install francinette's Python dependencies."
 		fi
 	fi
-	chmod +x tester.sh
 	echo "native" > "$PACO_DIR/.mode"
 	ok "francinette installed natively in $FRANCINETTE_DIR"
 else

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # paco - runs francinette against the project in the current directory.
 #
-# Native mode: this is a thin exec into francinette/tester.sh, nothing else
+# Native mode: this is a thin exec into francinette/main.py, nothing else
 # happens - there is no container to manage.
 #
 # Docker mode: the runner container is started lazily on first use and left
@@ -23,11 +23,14 @@ MODE="$(cat "$MODE_FILE")"
 
 if [ "$MODE" = "native" ]; then
 	FRANCINETTE_DIR="$INSTALL_DIR/francinette"
-	if [ ! -x "$FRANCINETTE_DIR/tester.sh" ]; then
+	if [ ! -f "$FRANCINETTE_DIR/main.py" ]; then
 		echo "paco: francinette is not installed in $FRANCINETTE_DIR. Re-run install.sh." >&2
 		exit 1
 	fi
-	exec "$FRANCINETTE_DIR/tester.sh" "$@"
+	# Not execing tester.sh: it sources a venv/bin/activate that install.sh never
+	# creates (deps are installed with --user, no venv needed) and falls back to
+	# plain 'python', which plenty of stock Ubuntu installs don't provide at all.
+	exec python3 "$FRANCINETTE_DIR/main.py" "$@"
 fi
 
 # --- docker mode ---

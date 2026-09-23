@@ -84,7 +84,10 @@ COPY --from=fetch /francinette /francinette
 WORKDIR /francinette
 
 RUN pip3 install --no-cache-dir -r requirements.txt norminette \
-	&& chmod +x tester.sh \
+	&& apt-get purge -y --auto-remove python3-pip \
 	&& rm -rf /root/.cache
 
+# main.py directly, not tester.sh: that script sources a venv/bin/activate
+# this image never creates (no venv - see the multi-stage comment above),
+# and falls back to a bare 'python' this image doesn't provide either.
 ENTRYPOINT ["python3", "/francinette/main.py"]
