@@ -1,0 +1,11 @@
+.git
+README.md
+README_ES.md
+README_FR.md
+SECURITY.md
+*.md
+install.sh
+uninstall.sh
+update.sh
+rebuild.sh
+paco
