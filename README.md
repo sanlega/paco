@@ -54,11 +54,11 @@ ejecuta igual con ambos testers (`gnlTester` y `fsoares`).
 ## Instalación
 
 ```shell
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/sanlega/paco/<rama>/install.sh)"
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/sanlega/paco/claude/kind-noether-mvlfze/install.sh)"
 ```
 
-(reemplazá `<rama>` por la rama por defecto del repo una vez mergeado, ej. `main`). El
-instalador pregunta el directorio de instalación (por defecto `$HOME`), decide automáticamente
+(si más adelante cambiás la rama por defecto del repo, por ejemplo a `main`, actualizá esa URL
+para que apunte ahí). El instalador pregunta el directorio de instalación (por defecto `$HOME`), decide automáticamente
 entre modo nativo y modo Docker, y deja disponibles los comandos `paco` y `francinette` (alias
 del mismo script) en tu shell.
 
@@ -79,7 +79,7 @@ para que el contenedor pueda verlo.
 ## Desinstalación / actualización / rebuild
 
 ```shell
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/sanlega/paco/<rama>/uninstall.sh)"
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/sanlega/paco/claude/kind-noether-mvlfze/uninstall.sh)"
 ```
 
 Ya instalado, `update.sh` trae la última versión (de paco y, en modo nativo, de francinette) y
