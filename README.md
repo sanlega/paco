@@ -93,7 +93,7 @@ Dockerfile        build multi-stage: clona francinette + aplica overlay/, instal
 overlay/          archivos que se copian encima del francinette clonado (mismo mecanismo
                   en Docker y en instalación nativa) - hoy, el parche de bonus obligatorio.
 paco              CLI: arranca/reusa el contenedor en modo Docker, o ejecuta
-                  francinette/tester.sh directo en modo nativo.
+                  francinette/main.py directo en modo nativo.
 install.sh        detecta modo nativo vs Docker, clona/actualiza, configura el shell.
 uninstall.sh       / update.sh / rebuild.sh
 ```
