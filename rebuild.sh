@@ -12,13 +12,9 @@ NC=$'\033[0m'
 log() { printf "${BLUE}[paco]${NC} ${WHITE}%s${NC}\n" "$1"; }
 die() { printf "${BLUE}[paco]${NC} ${RED}%s${NC}\n" "$1" >&2; exit 1; }
 
-if [ -z "${INSTALL_DIR:-}" ]; then
-	if [ -d "$HOME/paco" ]; then
-		INSTALL_DIR="$HOME"
-	else
-		read -r -p "Install directory used by paco: " INSTALL_DIR
-	fi
-fi
+# Non-interactive: defaults to $HOME (where install.sh defaults to too)
+# unless INSTALL_DIR is exported to point somewhere else.
+INSTALL_DIR="${INSTALL_DIR:-$HOME}"
 [ -d "$INSTALL_DIR" ] && INSTALL_DIR="$(cd "$INSTALL_DIR" && pwd)"
 
 PACO_DIR="$INSTALL_DIR/paco"

@@ -58,9 +58,10 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/sanlega/paco/claude/kind
 ```
 
 (si más adelante cambiás la rama por defecto del repo, por ejemplo a `main`, actualizá esa URL
-para que apunte ahí). El instalador pregunta el directorio de instalación (por defecto `$HOME`), decide automáticamente
-entre modo nativo y modo Docker, y deja disponibles los comandos `paco` y `francinette` (alias
-del mismo script) en tu shell.
+para que apunte ahí). Es un solo comando, sin preguntas: instala todo en `$HOME` (exportá
+`INSTALL_DIR=/otra/ruta` antes si querés otro lado), decide automáticamente entre modo nativo y
+modo Docker, y deja disponibles los comandos `paco` y `francinette` (alias del mismo script) en
+tu shell.
 
 ## Uso
 

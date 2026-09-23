@@ -29,11 +29,10 @@ ok()   { printf "${BLUE}[paco]${NC} ${WHITE}%s ${GREEN}OK${NC}\n" "$1"; }
 warn() { printf "${BLUE}[paco]${NC} ${YELLOW}%s${NC}\n" "$1"; }
 die()  { printf "${BLUE}[paco]${NC} ${RED}%s${NC}\n" "$1" >&2; exit 1; }
 
-if [ -z "${INSTALL_DIR:-}" ]; then
-	default_dir="$HOME"
-	read -r -p "Install directory (default: $default_dir): " user_input
-	INSTALL_DIR="${user_input:-$default_dir}"
-fi
+# Fully non-interactive: nothing below ever prompts, so this script can run
+# start to finish from `bash -c "$(curl ...)"` with no input. Override the
+# install directory by exporting INSTALL_DIR before running it.
+INSTALL_DIR="${INSTALL_DIR:-$HOME}"
 mkdir -p "$INSTALL_DIR"
 # Resolve to an absolute path: the script later does 'cd' (e.g. into
 # francinette to pip install), and every relative path built from
@@ -86,41 +85,23 @@ if can_go_native; then
 	MODE="native"
 fi
 
-if [ "$MODE" = "native" ] && [ -d "$FRANCINETTE_DIR" ]; then
-	# Already installed natively before; force is only needed if the user
-	# explicitly wants to switch to Docker.
-	if [ -t 0 ]; then
-		read -r -p "francinette is already installed natively in $FRANCINETTE_DIR. Reinstall? (y/N) " answer
-	else
-		answer="n"
-	fi
-	case "$answer" in
-		[Yy]*) rm -rf "$FRANCINETTE_DIR" ;;
-		*) ;;
-	esac
-fi
-
 if [ "$MODE" = "native" ]; then
 	log "Native toolchain detected: installing francinette directly (no Docker needed)."
-	if [ ! -d "$FRANCINETTE_DIR" ]; then
+	if [ -d "$FRANCINETTE_DIR/.git" ]; then
+		log "Updating existing francinette checkout in $FRANCINETTE_DIR"
+		git -C "$FRANCINETTE_DIR" pull --ff-only
+		git -C "$FRANCINETTE_DIR" submodule update --init --recursive
+	else
+		rm -rf "$FRANCINETTE_DIR"
 		git clone --recursive --shallow-submodules --depth 1 "$FRANCINETTE_URL" "$FRANCINETTE_DIR"
 	fi
 	apply_overlay "$FRANCINETTE_DIR"
 
 	cd "$FRANCINETTE_DIR"
 	if ! pip3 install --user --no-cache-dir -r requirements.txt norminette; then
-		warn "pip install failed in the default environment."
-		if [ -t 0 ]; then
-			read -r -p "Force install into the system environment with --break-system-packages? (y/N) " answer
-		else
-			answer="n"
-		fi
-		if [[ "$answer" =~ ^[Yy]$ ]]; then
-			pip3 install --user --no-cache-dir --break-system-packages -r requirements.txt norminette \
-				|| die "Could not install francinette's Python dependencies."
-		else
-			die "Could not install francinette's Python dependencies."
-		fi
+		warn "pip install failed in the default environment, forcing --break-system-packages."
+		pip3 install --user --no-cache-dir --break-system-packages -r requirements.txt norminette \
+			|| die "Could not install francinette's Python dependencies."
 	fi
 	echo "native" > "$PACO_DIR/.mode"
 	ok "francinette installed natively in $FRANCINETTE_DIR"
