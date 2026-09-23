@@ -79,19 +79,29 @@ install.sh     Picks native vs Docker, clones/updates, sets up your shell.
 uninstall.sh, update.sh, rebuild.sh
 ```
 
-**The mandatory-bonus patch.** Since `get_next_line`'s bonus part is graded as part of the
-mandatory work, students no longer split it into `_bonus`-suffixed files. francinette's upstream
-test harnesses (including a vendored third-party C++ test suite) still look for those exact
-filenames, so rather than patching that third-party code, `overlay/testers/get_next_line/GetNextLine.py`:
+**The mandatory-bonus patch.** Bonus is graded as part of the mandatory work now, so it no longer
+gets its own naming convention, Makefile rule, or header — it's just part of the regular files.
+francinette's default behaviour assumes the opposite (bonus is optional, and only tested when it
+detects one of those bonus-specific markers), so `overlay/` patches each affected tester to treat
+bonus as present by default instead of trying to detect it:
 
-1. treats the bonus as mandatory unless `-m`/`--mandatory` is passed explicitly;
-2. aliases the mandatory files onto the historical `_bonus` names
-   (`get_next_line_bonus.c`, `get_next_line_bonus.h`, `get_next_line_utils_bonus.c`) inside the
-   temporary working directory, so the vendored test suites keep compiling untouched.
+- **`get_next_line`** (`overlay/testers/get_next_line/GetNextLine.py`): no more `_bonus`-suffixed
+  files (`get_next_line_bonus.c`, `.h`, `get_next_line_utils_bonus.c`) — everything lives in
+  `get_next_line.c` / `.h` / `get_next_line_utils.c`. Since francinette's vendored third-party C++
+  test suite still looks for those exact filenames, rather than patching that third-party code the
+  overlay aliases the mandatory files onto the historical `_bonus` names inside the temporary
+  working directory, so it keeps compiling untouched.
+- **`libft`** (`overlay/testers/libft/Libft.py`, `Fsoares.py`): no more separate `bonus:` Makefile
+  target — `make all` builds everything, bonus functions included. The overlay always includes the
+  bonus function list when selecting which tests to run (unless `-m`/`--mandatory` is passed), and
+  drops the ` bonus` suffix francinette used to append to `make` invocations, since that target no
+  longer exists.
 
-This was verified end to end: a real build of the image, and a real test run against a
-`get_next_line` project with no `_bonus` files, confirming the bonus part still compiles and runs
-correctly with every bundled tester.
+In both cases, `-m`/`--mandatory` still works if you want to run only the historically-mandatory
+subset. Verified end to end for both: a real build of the image, and real test runs — a
+`get_next_line` project with no `_bonus` files, and a `libft` with bonus functions built by `all`
+and no `bonus:` rule — confirming everything compiles and gets tested correctly with no extra
+flags or file naming required.
 
 ## Credits
 
