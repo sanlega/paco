@@ -1,0 +1,74 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sanlega <santilega@gmail.com>
+Date: Fri, 2 Oct 2026 15:35:10 +0000
+Subject: [PATCH 12/12] get_next_line: test the bonus as part of the mandatory
+ run
+
+The bonus is mandatory now, but it still showed up as a separate
+[Bonus] / BONUS! run after the mandatory one - which also ran every
+mandatory test twice on the same files. Run once: the testers' bonus run,
+a superset of the mandatory one (multiple fds, single static variable
+included), presented as the mandatory part. -m still runs only the
+historical mandatory tests.
+---
+ testers/get_next_line/GetNextLine.py   | 5 +++++
+ testers/get_next_line/Tripouille.py    | 2 +-
+ tests/get_next_line/fsoares/Makefile   | 2 +-
+ tests/get_next_line/gnlTester/Makefile | 2 +-
+ 4 files changed, 8 insertions(+), 3 deletions(-)
+
+diff --git a/testers/get_next_line/GetNextLine.py b/testers/get_next_line/GetNextLine.py
+index 792c80e..27c5b95 100644
+--- a/testers/get_next_line/GetNextLine.py
++++ b/testers/get_next_line/GetNextLine.py
+@@ -39,6 +39,11 @@ class GetNextLine(BaseTester):
+ 			logger.info("Bonus is mandatory, testing it along with the mandatory part")
+ 			set_bonus(True)
+ 			self._alias_bonus_files()
++			# The testers' bonus run is a superset of their mandatory run (same
++			# tests, plus multiple fds and the single-static check) on the very
++			# same files now, so run only that one, as the mandatory part,
++			# instead of a mandatory run followed by a separate "bonus" one.
++			self.info.args.bonus = True
+ 		return []
+ 
+ 	def _alias_bonus_files(self):
+diff --git a/testers/get_next_line/Tripouille.py b/testers/get_next_line/Tripouille.py
+index 814eb96..800b1bf 100644
+--- a/testers/get_next_line/Tripouille.py
++++ b/testers/get_next_line/Tripouille.py
+@@ -36,7 +36,7 @@ class Tripouille(BaseExecutor):
+ 
+ 		timeout = f"TIMEOUT_US={get_timeout() * 1_000_000}"
+ 		output = execute_make(f"make {timeout} m", self.exec_mandatory)
+-		output_bonus = execute_make(f"make {timeout} b", self.exec_bonus, True)
++		output_bonus = execute_make(f"make {timeout} b", self.exec_bonus, self.exec_mandatory)
+ 		print()
+ 		errors = handle_output(output, self.exec_mandatory)
+ 
+diff --git a/tests/get_next_line/fsoares/Makefile b/tests/get_next_line/fsoares/Makefile
+index 4c3e729..177f54e 100644
+--- a/tests/get_next_line/fsoares/Makefile
++++ b/tests/get_next_line/fsoares/Makefile
+@@ -25,7 +25,7 @@ mandatory:
+ 	-@clang $(CFLAGS) -D BUFFER_SIZE=1000000 $(TIMEOUT_ARG) $(STRICT) tester.c $(UTILS) $(TEST_FILES) -ldl -o test3.out && ./test3.out < lines_around_10.txt
+ 
+ bonus:
+-	@tput setaf 3 && /bin/echo BONUS!
++	@tput setaf 3 && /bin/echo "MANDATORY (bonus included)"
+ 	-@clang $(CFLAGS) -D BUFFER_SIZE=1 $(TIMEOUT_ARG) $(STRICT) tester.c $(UTILS) $(BONUS_FILES) -ldl -o test4.out && ./test4.out < lines_around_10.txt && rm -f test.out
+ 	-@clang $(CFLAGS) -D BUFFER_SIZE=10 $(TIMEOUT_ARG) $(STRICT) tester.c $(UTILS) $(BONUS_FILES) -ldl -o test5.out && ./test5.out < lines_around_10.txt && rm -f test.out
+ 	-@clang $(CFLAGS) -D BUFFER_SIZE=1000000 $(TIMEOUT_ARG) $(STRICT) tester.c $(UTILS) $(BONUS_FILES) -ldl -o test6.out && ./test6.out < lines_around_10.txt && rm -f test.out
+diff --git a/tests/get_next_line/gnlTester/Makefile b/tests/get_next_line/gnlTester/Makefile
+index 0237152..6edfc14 100644
+--- a/tests/get_next_line/gnlTester/Makefile
++++ b/tests/get_next_line/gnlTester/Makefile
+@@ -73,7 +73,7 @@ mandatory_start:
+ 
+ bonus_start:
+ 	@tput setaf 3 && printf "[Static = " && cat ../*bonus.c | grep -E 'static.*;' | wc -l | tr -d '\n' | xargs /bin/echo -n && printf "]\n"
+-	@tput setaf 5 && /bin/echo [Bonus]
++	@tput setaf 5 && /bin/echo "[Mandatory (bonus included)]"
+ 
+ dockerm dockerb dockera: docker%:
+ 	@docker rm -f mc > /dev/null 2>&1 || true

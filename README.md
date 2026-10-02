@@ -69,7 +69,9 @@ Bonus is graded as part of the mandatory work now, so it no longer gets its own 
 rule:
 
 - **get_next_line**: no `_bonus` files - everything lives in `get_next_line.c` / `.h` /
-  `get_next_line_utils.c`.
+  `get_next_line_utils.c`, and the bonus tests (several file descriptors at once, a single `static`
+  variable) are part of the one and only mandatory run: there is no separate "bonus" section, and a
+  get_next_line that only handles one fd fails.
 - **libft**: `make` (`all`) builds everything, bonus functions included. Projects that still have a
   separate `bonus:` rule keep working: paco calls it too.
 
@@ -96,7 +98,7 @@ applies [its fixes](patches/) on top of it, identically in Docker and native mod
   `tput` failing without `$TERM`.
 - **Python 3.12/3.13** (native installs on recent distros): removed `pipes` module, warnings.
 - **Speed**: libftTester compiles and runs its tests in parallel (a libft run went from ~90 s to
-  ~60 s), and francinette no longer checks for updates over the network on every run.
+  ~60 s), get_next_line no longer runs every test twice (~50 s to ~30 s), and francinette no longer checks for updates over the network on every run.
 
 ## Size
 

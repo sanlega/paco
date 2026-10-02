@@ -27,6 +27,7 @@ CASES=(
 	"libft:bonus-rule|libft|pass|s/^OBJS\t= \$(SRCS:.c=.o) \$(BSRCS:.c=.o)\$/OBJS\t= \$(SRCS:.c=.o)\\nBOBJS\t= \$(BSRCS:.c=.o)\\n\\nbonus: \$(OBJS) \$(BOBJS)\\n\tar rcs \$(NAME) \$(OBJS) \$(BOBJS)/|Makefile"
 	"libft:wrong-strlen|libft|fail|s/return (i);/return (i + 1);/|ft_strlen.c"
 	"get_next_line|get_next_line|pass||"
+	"get_next_line:single-fd|get_next_line|fail|s/stash\\[fd\\]/stash[0]/g|get_next_line.c"
 	"get_next_line:leak|get_next_line|fail|0,/^\tfree(buf);\$/{/^\tfree(buf);\$/d}|get_next_line.c"
 	"ft_printf|ft_printf|pass||"
 	"ft_printf:wrong-null|ft_printf|fail|s/\"(null)\"/\"(nil)\"/|ft_printf_utils.c"
