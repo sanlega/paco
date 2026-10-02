@@ -69,10 +69,9 @@ can_go_native() {
 		command -v "$bin" >/dev/null 2>&1 || return 1
 	done
 	python3 -m pip --version >/dev/null 2>&1 || python3 -m venv --help >/dev/null 2>&1 || return 1
-	# libbsd-dev ships include/bsd/, libncurses-dev ships ncurses.h/curses.h
-	{ [ -d /usr/include/bsd ] || [ -d /usr/local/include/bsd ]; } || return 1
-	{ [ -f /usr/include/ncurses.h ] || [ -f /usr/include/ncurses/ncurses.h ] \
-		|| [ -f /usr/include/curses.h ] || [ -f /usr/local/include/ncurses.h ]; } || return 1
+	# libbsd and ncurses headers: ask the compiler instead of guessing paths
+	# (they move around, e.g. /usr/include/<multiarch>/bsd on Ubuntu 24.04)
+	printf '#include <bsd/string.h>\n#include <curses.h>\n' | cc -E -x c - >/dev/null 2>&1 || return 1
 }
 
 MODE="${PACO_MODE:-}"
