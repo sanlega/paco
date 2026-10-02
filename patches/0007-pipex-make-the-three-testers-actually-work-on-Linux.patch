@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: sanlega <santilega@gmail.com>
 Date: Fri, 2 Oct 2026 14:40:44 +0000
-Subject: [PATCH 08/11] pipex: make the three testers actually work on Linux
+Subject: [PATCH 07/10] pipex: make the three testers actually work on Linux
 
 - fsoares: compare against bash, not /bin/sh (dash on Debian/Ubuntu,
   whose error format crashed the stderr parser with a ValueError), and

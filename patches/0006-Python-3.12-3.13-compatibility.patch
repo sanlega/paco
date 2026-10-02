@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: sanlega <santilega@gmail.com>
 Date: Fri, 2 Oct 2026 14:30:08 +0000
-Subject: [PATCH 07/11] Python 3.12/3.13 compatibility
+Subject: [PATCH 06/10] Python 3.12/3.13 compatibility
 
 - 'pipes' was removed in Python 3.13: use shlex.quote (same function).
 - Raw strings for regexes, which Python 3.12+ otherwise reports with a

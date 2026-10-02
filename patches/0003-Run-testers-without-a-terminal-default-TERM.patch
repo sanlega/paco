@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: sanlega <santilega@gmail.com>
 Date: Fri, 2 Oct 2026 14:29:06 +0000
-Subject: [PATCH 04/11] Run testers without a terminal; default TERM
+Subject: [PATCH 03/10] Run testers without a terminal; default TERM
 
 pexpect's interact() needs a TTY on both ends and crashed with
 'Inappropriate ioctl for device' whenever output was piped or there was

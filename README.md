@@ -63,20 +63,15 @@ In Docker mode your project can be anywhere: folders under `$HOME`, `/goinfre` a
 runner container that stays up between runs (each run is just a `docker exec`), anything else gets a
 one-off container. The container runs as your user, so it never leaves root-owned files behind.
 
-## Bonus is mandatory
+## libft: bonus is mandatory
 
-Bonus is graded as part of the mandatory work now, so it no longer gets its own files or Makefile
-rule:
+libft's bonus (the list functions) is graded as part of the mandatory work now, so paco always tests
+it: `make` (`all`) is expected to build everything, bonus functions included. Projects that still
+have a separate `bonus:` rule keep working: paco calls it too. `-m`/`--mandatory` still tests only
+the historical mandatory part.
 
-- **get_next_line**: no `_bonus` files - everything lives in `get_next_line.c` / `.h` /
-  `get_next_line_utils.c`, and the bonus tests (several file descriptors at once, a single `static`
-  variable) are part of the one and only mandatory run: there is no separate "bonus" section, and a
-  get_next_line that only handles one fd fails.
-- **libft**: `make` (`all`) builds everything, bonus functions included. Projects that still have a
-  separate `bonus:` rule keep working: paco calls it too.
-
-The bonus part is tested by default; `-m`/`--mandatory` still tests only the historical mandatory
-part.
+Every other project (get_next_line, ft_printf, pipex...) is tested as usual: the bonus part only when
+the project has it.
 
 ## What paco fixes in francinette
 
@@ -98,7 +93,7 @@ applies [its fixes](patches/) on top of it, identically in Docker and native mod
   `tput` failing without `$TERM`.
 - **Python 3.12/3.13** (native installs on recent distros): removed `pipes` module, warnings.
 - **Speed**: libftTester compiles and runs its tests in parallel (a libft run went from ~90 s to
-  ~60 s), get_next_line no longer runs every test twice (~50 s to ~30 s), and francinette no longer checks for updates over the network on every run.
+  ~60 s), and francinette no longer checks for updates over the network on every run.
 
 ## Size
 

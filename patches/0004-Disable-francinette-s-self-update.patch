@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: sanlega <santilega@gmail.com>
 Date: Fri, 2 Oct 2026 14:29:06 +0000
-Subject: [PATCH 05/11] Disable francinette's self-update
+Subject: [PATCH 04/10] Disable francinette's self-update
 
 paco handles updates; francinette must neither prompt to update itself
 nor hit the network on every run.

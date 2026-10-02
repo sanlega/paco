@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: sanlega <santilega@gmail.com>
 Date: Fri, 2 Oct 2026 14:41:54 +0000
-Subject: [PATCH 11/11] minitalk: make the fsoares tester work on Linux
+Subject: [PATCH 10/10] minitalk: make the fsoares tester work on Linux
 
 It had only ever worked on macOS:
 - SIGINFO does not exist on Linux, so the wrapped main() did not even

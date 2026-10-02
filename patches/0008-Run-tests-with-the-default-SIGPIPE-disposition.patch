@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: sanlega <santilega@gmail.com>
 Date: Fri, 2 Oct 2026 14:40:44 +0000
-Subject: [PATCH 09/11] Run tests with the default SIGPIPE disposition
+Subject: [PATCH 08/10] Run tests with the default SIGPIPE disposition
 
 Python ignores SIGPIPE and pexpect passes that on to every test it
 spawns, so e.g. grep in 'grep x | ls' randomly printed 'write error:

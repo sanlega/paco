@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: sanlega <santilega@gmail.com>
 Date: Fri, 2 Oct 2026 14:30:08 +0000
-Subject: [PATCH 06/11] libft: still build a separate bonus rule when there is
+Subject: [PATCH 05/10] libft: still build a separate bonus rule when there is
  one
 
 With bonus graded as mandatory, 'all' is expected to build everything.

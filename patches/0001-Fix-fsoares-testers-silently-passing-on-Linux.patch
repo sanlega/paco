@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: sanlega <santilega@gmail.com>
 Date: Fri, 2 Oct 2026 14:29:06 +0000
-Subject: [PATCH 01/11] Fix fsoares testers silently passing on Linux
+Subject: [PATCH 01/10] Fix fsoares testers silently passing on Linux
 
 In the parent process errors_file is never opened (only the forked
 test child opens it), so add_to_error_file() did fclose(NULL) and
