@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Pulls the latest paco (Dockerfile/overlay/CLI) and, in native mode, the
-# latest francinette too, then re-applies the overlay and rebuilds whatever
-# needs rebuilding.
+# Updates paco to the latest version of its branch, re-applies the patches
+# to francinette (native mode) or rebuilds the image if needed (Docker
+# mode). Also available as `paco --update`.
 set -euo pipefail
 
 BLUE=$'\033[0;36m'
@@ -9,43 +9,38 @@ WHITE=$'\033[0;37m'
 GREEN=$'\033[0;32m'
 RED=$'\033[0;31m'
 NC=$'\033[0m'
-log() { printf "${BLUE}[paco]${NC} ${WHITE}%s${NC}\n" "$1"; }
-die() { printf "${BLUE}[paco]${NC} ${RED}%s${NC}\n" "$1" >&2; exit 1; }
+log() { printf '%s[paco]%s %s%s%s\n' "$BLUE" "$NC" "$WHITE" "$1" "$NC"; }
+die() { printf '%s[paco]%s %s%s%s\n' "$BLUE" "$NC" "$RED" "$1" "$NC" >&2; exit 1; }
 
-# Non-interactive: defaults to $HOME (where install.sh defaults to too)
-# unless INSTALL_DIR is exported to point somewhere else.
-INSTALL_DIR="${INSTALL_DIR:-$HOME}"
-[ -d "$INSTALL_DIR" ] && INSTALL_DIR="$(cd "$INSTALL_DIR" && pwd)"
-
-PACO_DIR="$INSTALL_DIR/paco"
+PACO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+INSTALL_DIR="$(dirname "$PACO_DIR")"
 FRANCINETTE_DIR="$INSTALL_DIR/francinette"
+[ -d "$PACO_DIR/.git" ] || die "$PACO_DIR is not a paco install. Run install.sh."
 
-[ -d "$PACO_DIR/.git" ] || die "paco is not installed in $PACO_DIR. Run install.sh first."
+branch="$(git -C "$PACO_DIR" rev-parse --abbrev-ref HEAD)"
+before="$(git -C "$PACO_DIR" rev-parse HEAD)"
+log "Fetching the latest paco ($branch)"
+git -C "$PACO_DIR" fetch -q --depth 1 origin "$branch" || die "Could not reach GitHub."
+# reset rather than pull: never fails on local changes or diverged shallow history
+git -C "$PACO_DIR" reset -q --hard FETCH_HEAD
+chmod +x "$PACO_DIR/paco" "$PACO_DIR"/*.sh
 
-log "Pulling latest paco"
-git -C "$PACO_DIR" pull --ff-only
-chmod +x "$PACO_DIR/paco"
-
-MODE="$(cat "$PACO_DIR/.mode" 2>/dev/null || echo docker)"
-
-if [ "$MODE" = "native" ]; then
-	[ -d "$FRANCINETTE_DIR/.git" ] || die "francinette is not installed in $FRANCINETTE_DIR."
-	log "Pulling latest francinette"
-	git -C "$FRANCINETTE_DIR" pull --ff-only
-	git -C "$FRANCINETTE_DIR" submodule update --init --recursive
-	if [ -d "$PACO_DIR/overlay" ]; then
-		cp -RT "$PACO_DIR/overlay" "$FRANCINETTE_DIR"
-	fi
-	(cd "$FRANCINETTE_DIR" && pip3 install --user --no-cache-dir -r requirements.txt norminette)
-	log "francinette updated natively"
+if [ "$before" = "$(git -C "$PACO_DIR" rev-parse HEAD)" ]; then
+	log "paco is already up to date"
 else
-	if command -v docker >/dev/null 2>&1 && docker image inspect paco-francinette >/dev/null 2>&1; then
-		log "Rebuilding the docker image with --no-cache so the update actually takes"
-		docker rm -f paco-runner >/dev/null 2>&1 || true
-		docker build --no-cache -t paco-francinette "$PACO_DIR"
-	else
-		log "Docker image will be built on next 'paco' run"
-	fi
+	log "Updated paco to $(git -C "$PACO_DIR" log -1 --format='%h (%cs)')"
 fi
 
-printf '%s\n' "${BLUE}[paco]${NC} ${WHITE}Updated ${GREEN}OK${NC}"
+if [ "$(cat "$PACO_DIR/.mode")" = "native" ]; then
+	[ -d "$FRANCINETTE_DIR/.git" ] || die "francinette is missing from $FRANCINETTE_DIR. Run 'paco --rebuild'."
+	log "Re-applying the patches to francinette"
+	# back to a pristine checkout (patched files, untracked/ignored leftovers), then patch again
+	git -C "$FRANCINETTE_DIR" reset -q --hard
+	git -C "$FRANCINETTE_DIR" clean -qfdx
+	git -C "$FRANCINETTE_DIR" submodule -q foreach --recursive 'git reset -q --hard && git clean -qfdx'
+	"$PACO_DIR/patch-francinette.sh" "$FRANCINETTE_DIR"
+else
+	"$PACO_DIR/paco" --prepare || true
+fi
+
+printf '%s[paco]%s %sUpdated %sOK%s\n' "$BLUE" "$NC" "$WHITE" "$GREEN" "$NC"

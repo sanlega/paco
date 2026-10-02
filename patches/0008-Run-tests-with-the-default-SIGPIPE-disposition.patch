@@ -1,0 +1,60 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sanlega <santilega@gmail.com>
+Date: Fri, 2 Oct 2026 14:40:44 +0000
+Subject: [PATCH 08/10] Run tests with the default SIGPIPE disposition
+
+Python ignores SIGPIPE and pexpect passes that on to every test it
+spawns, so e.g. grep in 'grep x | ls' randomly printed 'write error:
+Broken pipe' where a real shell prints nothing, making stderr
+comparisons flaky.
+---
+ testers/BaseExecutor.py  | 6 +++++-
+ testers/libft/Fsoares.py | 4 +++-
+ 2 files changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/testers/BaseExecutor.py b/testers/BaseExecutor.py
+index 9d02532..80f57b0 100644
+--- a/testers/BaseExecutor.py
++++ b/testers/BaseExecutor.py
+@@ -3,6 +3,7 @@ import glob
+ import logging
+ import os
+ import re
++import signal
+ import subprocess
+ from pathlib import Path
+ import sys
+@@ -85,7 +86,10 @@ class BaseExecutor:
+ 			return to_output
+ 
+ 		logger.info(f"on dir {os.getcwd()}")
+-		p = pexpect.spawn(command)
++		# paco: Python ignores SIGPIPE and pexpect passes that on to the tests,
++		# so e.g. `grep` in "grep x | ls" randomly printed "write error: Broken
++		# pipe" where a real shell prints nothing - flaky stderr comparisons.
++		p = pexpect.spawn(command, preexec_fn=lambda: signal.signal(signal.SIGPIPE, signal.SIG_DFL))
+ 		if sys.stdin.isatty() and sys.stdout.isatty():
+ 			p.interact(output_filter=parse_out)
+ 		else:
+diff --git a/testers/libft/Fsoares.py b/testers/libft/Fsoares.py
+index 8ab40b2..7c540e1 100644
+--- a/testers/libft/Fsoares.py
++++ b/testers/libft/Fsoares.py
+@@ -2,6 +2,7 @@ import logging
+ import os
+ import re
+ import shutil
++import signal
+ import subprocess
+ from pathlib import Path
+ from shlex import quote
+@@ -134,7 +135,8 @@ class Fsoares():
+ 
+ 		def execute_test(func):
+ 			spinner.start(f"ft_{func.ljust(13)}:")
+-			out, code = run("sh -c " + quote(f'./test_{func}.out'), withexitstatus=1)
++			out, code = run("sh -c " + quote(f'./test_{func}.out'), withexitstatus=1,
++			                preexec_fn=lambda: signal.signal(signal.SIGPIPE, signal.SIG_DFL))
+ 			output = out.decode('ascii', errors="backslashreplace")
+ 			logger.info(output)
+ 			output = get_output(func, output)

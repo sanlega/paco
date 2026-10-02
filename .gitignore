@@ -1,0 +1,13 @@
+# runtime state of an install
+/.mode
+/logs/
+/temp/
+/venv/
+/bin/
+
+# build products of the selftest projects
+*.o
+*.a
+selftest/projects/pipex/pipex
+selftest/projects/minitalk/server
+selftest/projects/minitalk/client

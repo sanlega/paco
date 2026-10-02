@@ -1,9 +1,10 @@
 .git
-README.md
-README_ES.md
-README_FR.md
-SECURITY.md
+.github
 *.md
+selftest/
+logs/
+temp/
+.mode
 install.sh
 uninstall.sh
 update.sh

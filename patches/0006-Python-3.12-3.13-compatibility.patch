@@ -1,0 +1,161 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sanlega <santilega@gmail.com>
+Date: Fri, 2 Oct 2026 14:30:08 +0000
+Subject: [PATCH 06/10] Python 3.12/3.13 compatibility
+
+- 'pipes' was removed in Python 3.13: use shlex.quote (same function).
+- Raw strings for regexes, which Python 3.12+ otherwise reports with a
+  SyntaxWarning printed in the middle of the test output.
+- Logger.warn -> Logger.warning (deprecated alias).
+---
+ testers/BaseTester.py       |  6 +++---
+ testers/libft/Fsoares.py    | 12 +++++++-----
+ testers/minitalk/Fsoares.py |  4 ++--
+ testers/pipex/Fsoares.py    |  2 +-
+ testers/pipex/Medic.py      |  2 +-
+ testers/pipex/Vfurname.py   |  2 +-
+ utils/LeaksCheck.py         |  2 +-
+ 7 files changed, 16 insertions(+), 14 deletions(-)
+
+diff --git a/testers/BaseTester.py b/testers/BaseTester.py
+index af0c2c3..92e0d4b 100644
+--- a/testers/BaseTester.py
++++ b/testers/BaseTester.py
+@@ -230,15 +230,15 @@ class BaseTester:
+ 
+ 		print(f"\n{TC.B_CYAN}Summary{TC.NC}: {'' if has_bonus() else 'no bonus'}")
+ 
+-		logger.warn(f"norminette errors: {norm_errors}")
++		logger.warning(f"norminette errors: {norm_errors}")
+ 		if norm_errors:
+ 			print(f"\n{TC.B_YELLOW}Norminette Errors{TC.NC}:", ', '.join(norm_errors))
+ 
+-		logger.warn(f"missing functions: {missing}")
++		logger.warning(f"missing functions: {missing}")
+ 		if missing:
+ 			print(f"\n{TC.B_YELLOW}Missing functions{TC.NC}: {', '.join(missing)}")
+ 
+-		logger.warn(f"errors in functions: {errors}")
++		logger.warning(f"errors in functions: {errors}")
+ 		if error_funcs:
+ 			print(f"\n{TC.B_RED}Failed tests{TC.NC}: {', '.join(error_funcs)}")
+ 
+diff --git a/testers/libft/Fsoares.py b/testers/libft/Fsoares.py
+index 7df8eaf..8ab40b2 100644
+--- a/testers/libft/Fsoares.py
++++ b/testers/libft/Fsoares.py
+@@ -4,7 +4,7 @@ import re
+ import shutil
+ import subprocess
+ from pathlib import Path
+-from pipes import quote
++from shlex import quote
+ from tempfile import tempdir
+ from typing import Set
+ 
+@@ -13,7 +13,7 @@ from pexpect import run
+ from testers.libft.BaseExecutor import remove_ansi_colors
+ from utils.ExecutionContext import get_timeout, has_bonus, is_strict
+ from utils.TerminalColors import TC
+-from utils.Utils import is_linux, is_mac, open_ascii, show_errors_file
++from utils.Utils import has_bonus_rule, is_linux, is_mac, open_ascii, show_errors_file
+ from utils.TraceToLine import program_name_start
+ 
+ logger = logging.getLogger("fsoares")
+@@ -60,9 +60,11 @@ class Fsoares():
+ 			file.write(new_make)
+ 
+ 		os.chdir(other_dir)
+-		# No more separate "bonus" Makefile target to call - "make re"
+-		# rebuilds everything, bonus functions included.
++		# "make re" rebuilds everything, bonus functions included - plus the
++		# separate "bonus" rule for projects that still have one.
+ 		command = "make re"
++		if has_bonus() and has_bonus_rule(other_dir):
++			command += " bonus"
+ 		logger.info(f"Calling '{command}' on directory {os.getcwd()}")
+ 
+ 		to_execute = command.split(" ")
+@@ -161,7 +163,7 @@ class Fsoares():
+ 		for func, res, lines in output:
+ 			if (is_error(res)):
+ 				errors.append(func)
+-		logger.warn(f"found errors for functions: {errors}")
++		logger.warning(f"found errors for functions: {errors}")
+ 		if errors:
+ 			build_error_file(errors)
+ 			show_errors_file(Path(self.temp_dir), "errors_color.log", "error.log")
+diff --git a/testers/minitalk/Fsoares.py b/testers/minitalk/Fsoares.py
+index 84ba364..8f84f7c 100644
+--- a/testers/minitalk/Fsoares.py
++++ b/testers/minitalk/Fsoares.py
+@@ -7,7 +7,7 @@ import string
+ import subprocess
+ import threading
+ from itertools import takewhile
+-from pipes import quote
++from shlex import quote
+ from time import sleep
+ 
+ from halo import Halo
+@@ -307,7 +307,7 @@ class Fsoares(BaseExecutor):
+ 				f.writelines(content)
+ 			logger.info(f"file {file} rewritten")
+ 
+-		p = subprocess.run('grep --include=\*.{c,h} -rnw ../__my_srcs -e "\\bmain\\b" | grep -v "//"',
++		p = subprocess.run('grep --include=\\*.{c,h} -rnw ../__my_srcs -e "\\bmain\\b" | grep -v "//"',
+ 		                   capture_output=True,
+ 		                   shell=True,
+ 		                   text=True)
+diff --git a/testers/pipex/Fsoares.py b/testers/pipex/Fsoares.py
+index 3e9aaaa..2350f4e 100644
+--- a/testers/pipex/Fsoares.py
++++ b/testers/pipex/Fsoares.py
+@@ -4,7 +4,7 @@ import re
+ import shutil
+ import time
+ from dataclasses import dataclass
+-from pipes import quote
++from shlex import quote
+ from subprocess import CompletedProcess, TimeoutExpired, run
+ from typing import List
+ 
+diff --git a/testers/pipex/Medic.py b/testers/pipex/Medic.py
+index 78b0f4c..73d91e2 100644
+--- a/testers/pipex/Medic.py
++++ b/testers/pipex/Medic.py
+@@ -8,7 +8,7 @@ from utils.ExecutionContext import console
+ 
+ logger = logging.getLogger("px-medic")
+ 
+-test_line_regex = re.compile("^([^#]+)# (\d+):.*\[(\w+)\]$")
++test_line_regex = re.compile(r"^([^#]+)# (\d+):.*\[(\w+)\]$")
+ 
+ 
+ class Medic(BaseExecutor):
+diff --git a/testers/pipex/Vfurname.py b/testers/pipex/Vfurname.py
+index 9ea9e7c..faf88aa 100644
+--- a/testers/pipex/Vfurname.py
++++ b/testers/pipex/Vfurname.py
+@@ -6,7 +6,7 @@ from utils.ExecutionContext import console
+ from testers.BaseExecutor import BaseExecutor
+ from utils.Utils import run_filter, show_errors_str
+ 
+-test_line_regex = re.compile("^([^#]+)# (\d+):.*\[(\w+)\]$")
++test_line_regex = re.compile(r"^([^#]+)# (\d+):.*\[(\w+)\]$")
+ 
+ 
+ class Vfurname(BaseExecutor):
+diff --git a/utils/LeaksCheck.py b/utils/LeaksCheck.py
+index 2725f7e..1fb01ef 100644
+--- a/utils/LeaksCheck.py
++++ b/utils/LeaksCheck.py
+@@ -7,7 +7,7 @@ from utils.ExecutionContext import console
+ 
+ logger = logging.getLogger("leak-check")
+ 
+-leaks_regex = re.compile(".* (\d+) leak(?:s)? for (\d+) total.*")
++leaks_regex = re.compile(r".* (\d+) leak(?:s)? for (\d+) total.*")
+ 
+ 
+ class LeakException(Exception):

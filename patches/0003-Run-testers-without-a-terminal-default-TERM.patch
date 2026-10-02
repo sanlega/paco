@@ -1,0 +1,55 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sanlega <santilega@gmail.com>
+Date: Fri, 2 Oct 2026 14:29:06 +0000
+Subject: [PATCH 03/10] Run testers without a terminal; default TERM
+
+pexpect's interact() needs a TTY on both ends and crashed with
+'Inappropriate ioctl for device' whenever output was piped or there was
+no terminal (CI, '| tee', docker exec without -t). Stream the output
+instead in that case.
+
+Several vendored Makefiles call 'tput', which fails without TERM.
+---
+ testers/BaseExecutor.py | 22 +++++++++++++++++++++-
+ 1 file changed, 21 insertions(+), 1 deletion(-)
+
+diff --git a/testers/BaseExecutor.py b/testers/BaseExecutor.py
+index 2e80f69..9d02532 100644
+--- a/testers/BaseExecutor.py
++++ b/testers/BaseExecutor.py
+@@ -15,6 +15,11 @@ from utils.TerminalColors import TC
+ from utils.Utils import is_linux, remove_ansi_colors, show_errors_file
+ 
+ logger = logging.getLogger('base_exec')
++
++# paco: several vendored test Makefiles/scripts call `tput setaf ...`, which
++# fails (and with it the whole make target) when TERM is unset - e.g. under
++# `docker exec` without -t, in CI, or from a cron job.
++os.environ.setdefault("TERM", "xterm-256color")
+ trace_regex = re.compile(r"\d+\s+[\w.?]+\s+[\d\w]+ (\w+) \+ (\d+)")
+ lldb_out_regex = re.compile(r"\s+Summary: \w+.out`(\w+) \+ (\d+) at (.*)$")
+ 
+@@ -81,7 +86,22 @@ class BaseExecutor:
+ 
+ 		logger.info(f"on dir {os.getcwd()}")
+ 		p = pexpect.spawn(command)
+-		p.interact(output_filter=parse_out)
++		if sys.stdin.isatty() and sys.stdout.isatty():
++			p.interact(output_filter=parse_out)
++		else:
++			# paco: interact() needs a real terminal on both ends (it puts stdin
++			# in raw mode), so it crashed with "Inappropriate ioctl for device"
++			# whenever the output was piped or there was no TTY (CI, `| tee`,
++			# `docker exec` without -t). Without a terminal there is no one to
++			# interact with anyway: just stream the output through the filter.
++			while True:
++				try:
++					chunk = p.read_nonblocking(4096, timeout=None)
++				except pexpect.EOF:
++					break
++				sys.stdout.buffer.write(parse_out(chunk))
++				sys.stdout.flush()
++			p.close()
+ 		print(TC.NC, end="")
+ 		return remove_ansi_colors(output)
+ 

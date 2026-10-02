@@ -1,107 +1,141 @@
 # paco
 
 A lightweight installer and runner for [Francinette](https://github.com/xicodomingues/francinette),
-the 42 School project tester (`libft`, `get_next_line`, `printf`, `minitalk`, `pipex`...).
+the 42 School project tester (`libft`, `get_next_line`, `ft_printf`, `minitalk`, `pipex`...).
 
-This is a rebuild of [francinette-image](https://github.com/WaRtr0/francinette-image) that fixes
-its biggest problem: the Docker image was **2.5 GB**.
-
-## What's different
-
-- **Smaller image.** The original installed `ghc` (the Haskell compiler), `cmake`, `postgresql`/
-  `libpq-dev` and `libxext-dev` — none of them used by any tester in the repo. It also never
-  actually activated the Python venv it created (each Docker `RUN` is its own shell, so the
-  `source venv/bin/activate` never survived to the next layer), and dragged in the full git
-  history of 9 submodules. Cutting all of that, using `--no-install-recommends`, cleaning up the
-  `apt` cache, and building in multiple stages (so what's deleted in one layer doesn't still
-  weigh down the ones below it) gets the image down to **~1.1 GB** — while keeping the exact
-  same `gcc` + `clang`, `valgrind` and `norminette` a real 42 session uses, since that's what
-  keeps test results trustworthy.
-- **Zero overhead when possible.** `install.sh` first tries installing francinette straight onto
-  your system (no Docker) if you already have `gcc`, `clang`, `valgrind`, `libbsd-dev` and
-  `libncurses-dev` — the common case on Linux. There, paco's "size" is zero: no image to build.
-  Docker is only a fallback, for macOS, Windows/WSL without the toolchain, or any system missing
-  those packages.
-- **Actually cross-platform.** The original installer only touched `.zshrc` and relied on
-  `systemctl` (which doesn't exist on macOS) to start the container on every new shell. Here, the
-  installer configures whichever of `.bashrc`/`.zshrc` you actually have, the container starts
-  lazily the first time you run `paco`, and `docker build` targets your machine's own
-  architecture automatically (amd64 or arm64) — no manifests or `buildx` needed.
-- **`get_next_line`'s bonus part is now graded as mandatory.** No more `_bonus`-suffixed files —
-  everything lives directly in `get_next_line.c` / `.h` / `get_next_line_utils.c`. See
-  [How it works](#how-it-works) below.
+It started as a rebuild of [francinette-image](https://github.com/WaRtr0/francinette-image), whose
+Docker image weighed **2.5 GB**. paco's weighs **~420 MB (a ~140 MB download)**, installs natively
+with no Docker at all when your system already has the toolchain, and fixes a long list of
+francinette testers that crashed - or worse, silently "passed" without testing anything - on Linux.
 
 ## Install
 
-One command, no prompts:
+One command, no prompts. It **removes any previous version first** (an older paco, the original
+francinette, or francinette-image, including their Docker images and shell aliases), then installs
+the current one:
 
 ```shell
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/sanlega/paco/main/install.sh)"
 ```
 
-It installs into `$HOME` by default (export `INSTALL_DIR=/some/path` first to use a different
-location), figures out on its own whether to go native or Docker, and wires up the `paco` and
-`francinette` commands in your shell.
+Then open a new terminal. The installer picks the mode by itself:
 
-## Usage
+- **Native** (Linux with `gcc`, `clang`, `valgrind`, `libbsd-dev` and `libncurses-dev`, like 42's
+  machines): francinette runs directly on your system. Nothing to download but francinette itself.
+- **Docker** (macOS, Windows/WSL, or Linux without those packages): francinette runs inside the
+  slim image, built once during the install.
 
-Inside a project folder (`libft`, `get_next_line`, etc.):
+Options, exported before running the command: `INSTALL_DIR=/some/path` (default: `$HOME`),
+`PACO_MODE=native` or `PACO_MODE=docker` to skip the detection.
 
-```shell
-paco
-```
-
-It takes the same flags francinette does — `-m`/`--mandatory`, `-b`/`--bonus`, `-s`/`--strict`,
-`-in`/`--ignore-norm`, `-t`/`--testers`, and more. Run `paco --help` to see all of them.
-
-In Docker mode, your project needs to live under `$HOME` (or `/goinfre`, `/sgoinfre` if you're on
-a 42 campus machine) for the container to see it.
-
-## Uninstall / update / rebuild
+## Uninstall
 
 ```shell
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/sanlega/paco/main/uninstall.sh)"
 ```
 
-Once installed, `update.sh` pulls the latest version (of paco, and of francinette in native
-mode), and `rebuild.sh` forces a clean rebuild — no cache — of the image or the native checkout.
+or simply `paco --uninstall`. Either one removes paco, francinette, the Docker container and image,
+and the `paco`/`francinette` aliases from `~/.bashrc` and `~/.zshrc` (a backup of each file is kept as
+`.bashrc.paco-backup` / `.zshrc.paco-backup`). It also cleans up leftovers of francinette-image.
+
+## Usage
+
+Inside a project folder:
+
+```shell
+paco
+```
+
+It takes the same options as francinette: `-m`/`--mandatory`, `-b`/`--bonus`, `-s`/`--strict`,
+`-in`/`--ignore-norm`, `-t`/`--testers`, `-tm`/`--timeout`... (`paco --help` lists them all).
+`francinette` works as an alias of `paco`.
+
+paco's own commands:
+
+| Command          | What it does                                                             |
+| ---------------- | ------------------------------------------------------------------------ |
+| `paco --update`  | Updates paco and re-applies its fixes (the image rebuilds by itself).    |
+| `paco --rebuild` | Rebuilds everything from scratch, if something ever gets corrupted.      |
+| `paco --uninstall` | Removes paco completely (see above).                                   |
+| `paco --version` | Shows the installed version and mode.                                    |
+
+In Docker mode your project can be anywhere: folders under `$HOME`, `/goinfre` and `/sgoinfre` use a
+runner container that stays up between runs (each run is just a `docker exec`), anything else gets a
+one-off container. The container runs as your user, so it never leaves root-owned files behind.
+
+## libft: bonus is mandatory
+
+libft's bonus (the list functions) is graded as part of the mandatory work now, so paco always tests
+it: `make` (`all`) is expected to build everything, bonus functions included. Projects that still
+have a separate `bonus:` rule keep working: paco calls it too. `-m`/`--mandatory` still tests only
+the historical mandatory part.
+
+Every other project (get_next_line, ft_printf, pipex...) is tested as usual: the bonus part only when
+the project has it.
+
+## What paco fixes in francinette
+
+francinette is no longer maintained, and several of its testers only ever worked on macOS. paco
+applies [its fixes](patches/) on top of it, identically in Docker and native mode:
+
+- **Testers that reported success without testing anything**: fsoares' `ft_printf` tester crashed at
+  startup on Linux (AddressSanitizer vs. its malloc mock), and every fsoares tester crashed as soon
+  as one test failed (`fclose(NULL)`). In both cases the empty output was reported as
+  "All tests passed".
+- **Testers that never worked on Linux**: pipexMedic (did not compile with any recent compiler, and
+  bash >= 5.1 changed its error format), pipex-tester (required `ping`), fsoares' minitalk tester
+  (`SIGINFO` and macOS signal numbers), fsoares' pipex tester (its error comparison crashed under
+  `dash`, and its leak check only existed for macOS - it uses valgrind now).
+- **False failures**: valgrind could not read clang's DWARF 5 debug info ("unhandled dwarf2 abbrev
+  form code"), the stdio buffer was reported as a leak in `ft_printf`, and `grep` randomly printed
+  "Broken pipe" in pipex tests.
+- **Crashes without a terminal** (`paco | tee log`, CI): "Inappropriate ioctl for device", and
+  `tput` failing without `$TERM`.
+- **Python 3.12/3.13** (native installs on recent distros): removed `pipes` module, warnings.
+- **Speed**: libftTester compiles and runs its tests in parallel (a libft run went from ~90 s to
+  ~60 s), and francinette no longer checks for updates over the network on every run.
+
+## Size
+
+| Image                     | Size    |
+| ------------------------- | ------- |
+| francinette-image         | 2.5 GB  |
+| paco (previous)           | 1.1 GB  |
+| **paco**                  | **~420 MB** (~140 MB download) |
+
+The image has exactly what the testers use - `clang` (which is also `cc`/`gcc`, as on 42's
+machines), `make`, `valgrind` (memcheck), `norminette`, `python3` - and nothing else: no Haskell,
+CMake or PostgreSQL like the original, no 32-bit runtimes, no other valgrind tools, sanitizer
+runtimes for other architectures, Perl, docs or caches. It is shipped as a single layer, so what is
+deleted while building really is gone, and the build smoke-tests the toolchain before finishing.
+
+(With Docker's containerd image store, `docker images` shows the unpacked size plus the compressed
+download as "disk usage", ~580 MB.)
 
 ## How it works
 
 ```
-Dockerfile     Multi-stage build: clones francinette, applies overlay/, installs only what
-               the testers actually use - no venv, no leftover apt/pip cache.
-overlay/       Files copied on top of the cloned francinette (same mechanism for both Docker
-               and native installs) - currently, the mandatory-bonus patch below.
-paco           The CLI: starts/reuses the container in Docker mode, or runs
-               francinette/main.py directly in native mode.
-install.sh     Picks native vs Docker, clones/updates, sets up your shell.
-uninstall.sh, update.sh, rebuild.sh
+paco                  The CLI: runs francinette natively, or through the Docker runner.
+install.sh            Removes old versions, picks native vs Docker, sets up the aliases.
+uninstall.sh          Removes paco and every older layout (also used by install.sh).
+update.sh, rebuild.sh paco --update / paco --rebuild.
+patch-francinette.sh  Applies patches/ to a francinette checkout (Docker and native).
+patches/              paco's fixes to francinette, one commit-style patch per fix.
+Dockerfile            Multi-stage build, flattened into a single slim layer.
+selftest/             Reference projects + a script that checks every tester.
 ```
 
-**The mandatory-bonus patch.** Bonus is graded as part of the mandatory work now, so it no longer
-gets its own naming convention, Makefile rule, or header — it's just part of the regular files.
-francinette's default behaviour assumes the opposite (bonus is optional, and only tested when it
-detects one of those bonus-specific markers), so `overlay/` patches each affected tester to treat
-bonus as present by default instead of trying to detect it:
+### Self-test
 
-- **`get_next_line`** (`overlay/testers/get_next_line/GetNextLine.py`): no more `_bonus`-suffixed
-  files (`get_next_line_bonus.c`, `.h`, `get_next_line_utils_bonus.c`) — everything lives in
-  `get_next_line.c` / `.h` / `get_next_line_utils.c`. Since francinette's vendored third-party C++
-  test suite still looks for those exact filenames, rather than patching that third-party code the
-  overlay aliases the mandatory files onto the historical `_bonus` names inside the temporary
-  working directory, so it keeps compiling untouched.
-- **`libft`** (`overlay/testers/libft/Libft.py`, `Fsoares.py`): no more separate `bonus:` Makefile
-  target — `make all` builds everything, bonus functions included. The overlay always includes the
-  bonus function list when selecting which tests to run (unless `-m`/`--mandatory` is passed), and
-  drops the ` bonus` suffix francinette used to append to `make` invocations, since that target no
-  longer exists.
+`selftest/run.sh [image]` runs every tester against small, correct reference projects (each must
+report "All tests passed") and against deliberately broken copies of them (each must report
+failures), which catches both false failures and silent false passes:
 
-In both cases, `-m`/`--mandatory` still works if you want to run only the historically-mandatory
-subset. Verified end to end for both: a real build of the image, and real test runs — a
-`get_next_line` project with no `_bonus` files, and a `libft` with bonus functions built by `all`
-and no `bonus:` rule — confirming everything compiles and gets tested correctly with no extra
-flags or file naming required.
+```shell
+docker build -t paco-francinette . && selftest/run.sh paco-francinette
+```
+
+It also runs on every pull request (see `.github/workflows/selftest.yml`).
 
 ## Credits
 

@@ -1,0 +1,72 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sanlega <santilega@gmail.com>
+Date: Fri, 2 Oct 2026 14:29:06 +0000
+Subject: [PATCH 02/10] libft: grade the bonus part as mandatory
+
+Bonus functions are tested unless -m is passed.
+---
+ testers/libft/Fsoares.py |  4 +++-
+ testers/libft/Libft.py   | 21 ++++++++++++---------
+ 2 files changed, 15 insertions(+), 10 deletions(-)
+
+diff --git a/testers/libft/Fsoares.py b/testers/libft/Fsoares.py
+index 5daa574..7df8eaf 100644
+--- a/testers/libft/Fsoares.py
++++ b/testers/libft/Fsoares.py
+@@ -60,7 +60,9 @@ class Fsoares():
+ 			file.write(new_make)
+ 
+ 		os.chdir(other_dir)
+-		command = "make re" + (" bonus" if has_bonus() else "")
++		# No more separate "bonus" Makefile target to call - "make re"
++		# rebuilds everything, bonus functions included.
++		command = "make re"
+ 		logger.info(f"Calling '{command}' on directory {os.getcwd()}")
+ 
+ 		to_execute = command.split(" ")
+diff --git a/testers/libft/Libft.py b/testers/libft/Libft.py
+index 6c8afc1..f401a34 100644
+--- a/testers/libft/Libft.py
++++ b/testers/libft/Libft.py
+@@ -48,12 +48,13 @@ class Libft(BaseTester):
+ 				set_bonus(True)
+ 			return all_funcs
+ 
+-		all_funcs = PART_1_FUNCTIONS + PART_2_FUNCTIONS
+-		if self.has_bonus():
+-			all_funcs = all_funcs + BONUS_FUNCTIONS
+-			set_bonus(True)
+-		return all_funcs
+-
++		# Campus rule: the bonus part is mandatory now, with no separate
++		# "bonus:" Makefile rule to detect - it's built as part of "all"
++		# like everything else. So unless --mandatory explicitly asks for
++		# the mandatory-only subset, always test the bonus functions too
++		# instead of relying on a Makefile rule that no longer exists.
++		set_bonus(True)
++		return PART_1_FUNCTIONS + PART_2_FUNCTIONS + BONUS_FUNCTIONS
+ 
+ 	def prepare_tests(self, tester):
+ 		super().prepare_tests(tester)
+@@ -80,16 +81,18 @@ class Libft(BaseTester):
+ 		with open(header, "r") as h:
+ 			funcs_str = [line for line in h.readlines() if func_regex.match(line)]
+ 			return [func_regex.match(line).group(1) for line in funcs_str]
+-			
++
+ 	def compile_source(self):
+ 		os.chdir(os.path.join(self.temp_dir))
+ 		makefile = Path(self.temp_dir, "Makefile")
+ 		if not makefile.exists():
+ 			return
+-		command = "make fclean all" + (" bonus" if self.has_bonus() else "")
++		# No more separate "bonus" Makefile target to call - "all" builds
++		# everything now, bonus functions included.
++		command = "make fclean all"
+ 		logger.info(f"Calling '{command}' on directory {os.getcwd()}")
+ 
+-		text = f"{TC.CYAN}Executing: {TC.B_WHITE}{command}{TC.NC} " + ("" if self.has_bonus() else "(no bonus)")
++		text = f"{TC.CYAN}Executing: {TC.B_WHITE}{command}{TC.NC}"
+ 		with Halo(text=text) as spinner:
+ 			run_command(command, spinner)
+ 			spinner.succeed()

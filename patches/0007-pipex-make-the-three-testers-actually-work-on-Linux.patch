@@ -1,0 +1,159 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sanlega <santilega@gmail.com>
+Date: Fri, 2 Oct 2026 14:40:44 +0000
+Subject: [PATCH 07/10] pipex: make the three testers actually work on Linux
+
+- fsoares: compare against bash, not /bin/sh (dash on Debian/Ubuntu,
+  whose error format crashed the stderr parser with a ValueError), and
+  compare the native stderr with pipex's instead of with itself.
+- fsoares: the leak check used macOS' 'leaks' tool only, so on Linux it
+  never ran. Use valgrind there.
+- pipexMedic: the tester itself failed to link with any compiler from
+  the last years (-fno-common is the default since GCC 10 / clang 11),
+  so it never ran a single test. Also bash >= 5.1 prefixes errors with
+  'line 1: ', which made every error test fail on stderr.
+- pipex-tester: 'ping' was required only for its update check, which is
+  disabled; it is missing from many systems and images.
+---
+ testers/pipex/Fsoares.py          | 13 ++++++++++---
+ tests/pipex/pipex-tester/run.sh   |  2 +-
+ tests/pipex/pipexMedic/src/test.c |  4 +++-
+ tests/pipex/pipexMedic/test.sh    |  2 +-
+ utils/LeaksCheck.py               | 31 +++++++++++++++++++++++++++++++
+ 5 files changed, 46 insertions(+), 6 deletions(-)
+
+diff --git a/testers/pipex/Fsoares.py b/testers/pipex/Fsoares.py
+index 2350f4e..fd31225 100644
+--- a/testers/pipex/Fsoares.py
++++ b/testers/pipex/Fsoares.py
+@@ -55,9 +55,13 @@ def run_bash(command, test, timeout=None):
+ 			command = "./heredoc.sh"
+ 
+ 	try:
++		# paco: always compare against bash. shell=True alone means /bin/sh,
++		# which is dash on Debian/Ubuntu, whose error format
++		# ("/bin/sh: 1: cmd: not found") broke the stderr comparison below.
+ 		return run(command,
+ 				capture_output=True,
+-				shell="True",
++				shell=True,
++				executable="/bin/bash",
+ 				encoding="ascii",
+ 				errors="backslashreplace",
+ 				env=my_env,
+@@ -268,12 +272,15 @@ class Fsoares(BaseExecutor):
+ 
+ 		def diff_stderr(stderr, actual_stderr):
+ 			errs = sorted(stderr.lower().splitlines())
+-			actual_errs = stderr.lower().splitlines()
++			# paco: this compared the native stderr against itself, and
++			# crashed (ValueError) on messages with more than 3 fields, like
++			# bash's "bash: line 1: cmd: command not found".
++			actual_errs = actual_stderr.lower().splitlines()
+ 			for line in errs:
+ 				split = line.split(":")
+ 				if len(split) < 3:
+ 					continue
+-				cmd, msg = map(str.strip, split[1:])
++				cmd, msg = map(str.strip, split[-2:])
+ 				line = next(filter(lambda line: cmd in line, actual_errs), None)
+ 				if line is None:
+ 					return True
+diff --git a/tests/pipex/pipex-tester/run.sh b/tests/pipex/pipex-tester/run.sh
+index 8de6729..c725662 100755
+--- a/tests/pipex/pipex-tester/run.sh
++++ b/tests/pipex/pipex-tester/run.sh
+@@ -44,7 +44,7 @@ function should_execute()
+ 	return 1
+ }
+ 
+-commands_needed=("awk" "sleep" "date" "awk" "dirname" "touch" "chmod" "ping" "git" "mkdir" "make" "nm" "grep" "wc" "cat" "hostname" "head")
++commands_needed=("awk" "sleep" "date" "awk" "dirname" "touch" "chmod" "git" "mkdir" "make" "nm" "grep" "wc" "cat" "hostname" "head")
+ for command_needed in "${commands_needed[@]}"
+ do
+ 	command -v $command_needed > /dev/null 2>&1 || fatal_error "'$command_needed' command not installed... Aborting."
+diff --git a/tests/pipex/pipexMedic/src/test.c b/tests/pipex/pipexMedic/src/test.c
+index 18503da..44f7817 100644
+--- a/tests/pipex/pipexMedic/src/test.c
++++ b/tests/pipex/pipexMedic/src/test.c
+@@ -111,7 +111,9 @@ void test(const char *testSubset, const size_t testIndex, char *const commandLis
+ #ifdef __APPLE__
+     system("sed -i '.bck' 's/bash/pipex/g' tmp/errorBash.tmp");
+ #else
+-    system("sed -i 's/bash/pipex/g' tmp/errorBash.tmp");
++    // paco: bash >= 5.1 adds "line 1: " to errors in -c mode, which no
++    // pipex prints - drop it so the reference is the classic message.
++    system("sed -i -e 's/bash/pipex/g' -e 's/^pipex: line [0-9]*: /pipex: /' tmp/errorBash.tmp");
+ #endif
+ 
+     bashCommand[strlen(bashCommand) - 3 - 1] = '\0';
+diff --git a/tests/pipex/pipexMedic/test.sh b/tests/pipex/pipexMedic/test.sh
+index 57279fa..046c872 100755
+--- a/tests/pipex/pipexMedic/test.sh
++++ b/tests/pipex/pipexMedic/test.sh
+@@ -34,7 +34,7 @@ if ! [[ -z $2 ]]; then
+     ARG2=$2
+ fi
+ 
+-clang -Wall -Wextra -Werror -fsanitize=address -I ./inc src/{main,test,runTest,utils}.c -o tester
++clang -Wall -Wextra -Werror -fcommon -fsanitize=address -I ./inc src/{main,test,runTest,utils}.c -o tester
+ if [[ $? -ne 0 ]]; then
+ 	rm -rf tmp/; exit 1
+ fi
+diff --git a/utils/LeaksCheck.py b/utils/LeaksCheck.py
+index 1fb01ef..63d32ec 100644
+--- a/utils/LeaksCheck.py
++++ b/utils/LeaksCheck.py
+@@ -1,13 +1,16 @@
+ import logging
+ import re
++import shutil
+ import subprocess
+ import threading
+ from time import sleep
+ from utils.ExecutionContext import console
++from utils.Utils import is_linux
+ 
+ logger = logging.getLogger("leak-check")
+ 
+ leaks_regex = re.compile(r".* (\d+) leak(?:s)? for (\d+) total.*")
++valgrind_lost_regex = re.compile(r"==\d+==\s+(definitely|indirectly) lost: ([\d,]+) bytes")
+ 
+ 
+ class LeakException(Exception):
+@@ -44,7 +47,35 @@ class LeakChecker(threading.Thread):
+ 			self.stdout += line
+ 
+ 
++def valgrind_has_leaks(command, timeout, input=None):
++	"""paco: Linux counterpart of the macOS-only `leaks` tool below. Before
++	this, the leak check could never run on Linux ("Leak check was not
++	executed, do it manually") and was simply skipped."""
++	if not shutil.which("valgrind"):
++		console.print("\nLeak check was not executed (valgrind is not installed), do it manually\n",
++		              style="b yellow")
++		raise LeakException()
++	try:
++		proc = subprocess.run(["valgrind", "--leak-check=full", "--show-leak-kinds=definite,indirect"] +
++		                      command.split(),
++		                      input=input,
++		                      capture_output=True,
++		                      text=True,
++		                      errors="backslashreplace",
++		                      timeout=max(timeout * 10, 15))
++	except subprocess.TimeoutExpired:
++		console.print("\nLeak check timed out, do it manually\n", style="b yellow")
++		raise LeakException()
++	logger.info(proc.stderr)
++	lost = [int(m.group(2).replace(",", "")) for m in valgrind_lost_regex.finditer(proc.stderr)]
++	if any(lost):
++		return "\n".join(line for line in proc.stderr.splitlines() if line.startswith("=="))
++	return False
++
++
+ def has_leaks(command, timeout=1.5, input=None):
++	if is_linux():
++		return valgrind_has_leaks(command, timeout, input)
+ 	checker = LeakChecker(command, timeout, input=input)
+ 	checker.daemon = True
+ 	checker.start()

@@ -1,0 +1,92 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sanlega <santilega@gmail.com>
+Date: Fri, 2 Oct 2026 14:41:54 +0000
+Subject: [PATCH 10/10] minitalk: make the fsoares tester work on Linux
+
+It had only ever worked on macOS:
+- SIGINFO does not exist on Linux, so the wrapped main() did not even
+  compile. Use SIGURG there (ignored by default, like SIGINFO).
+- 'grep --include=\*.{c,h}' relies on bash brace expansion but runs
+  under /bin/sh (dash on Debian/Ubuntu), so no main() was found and
+  every run died with "'NoneType' object has no attribute 'group'".
+- The 'only uses SIGUSR1 and SIGUSR2' check compared against macOS'
+  signal numbers (30, 31); Linux uses 10 and 12.
+---
+ testers/minitalk/Fsoares.py           | 15 +++++++++++----
+ tests/minitalk/fsoares/wrapper_code.c |  6 ++++++
+ 2 files changed, 17 insertions(+), 4 deletions(-)
+
+diff --git a/testers/minitalk/Fsoares.py b/testers/minitalk/Fsoares.py
+index 8f84f7c..49101f7 100644
+--- a/testers/minitalk/Fsoares.py
++++ b/testers/minitalk/Fsoares.py
+@@ -3,6 +3,7 @@ import random
+ import os
+ import re
+ import shutil
++import signal
+ import string
+ import subprocess
+ import threading
+@@ -14,10 +15,14 @@ from halo import Halo
+ from testers.BaseExecutor import BaseExecutor
+ from utils.ExecutionContext import get_timeout, console
+ from utils.TerminalColors import TC
+-from utils.Utils import decode_ascii, escape_str, remove_ansi_colors, show_errors_file
++from utils.Utils import decode_ascii, escape_str, is_linux, remove_ansi_colors, show_errors_file
+ 
+ logger = logging.getLogger('mt-fsoares')
+ MSG_DELIM = '====='
++# paco: SIGINFO does not exist on Linux, wrapper_code.c maps it to SIGURG there
++RESET_SIGNAL = "URG" if is_linux() else "INFO"
++# paco: these were hardcoded to macOS' numbers (30 and 31); Linux uses 10 and 12
++USR_SIGNALS = (str(int(signal.SIGUSR1)), str(int(signal.SIGUSR2)))
+ 
+ 
+ def send_signal(pid, signal):
+@@ -214,7 +219,7 @@ class Fsoares(BaseExecutor):
+ 		def check_process_signals(lines, proc_id):
+ 			for line in lines:
+ 				sig, pid = line.group(1), line.group(2)
+-				if pid == proc_id and sig != "30" and sig != "31":
++				if pid == proc_id and sig not in USR_SIGNALS:
+ 					return False
+ 			return True
+ 
+@@ -241,7 +246,7 @@ class Fsoares(BaseExecutor):
+ 		spinner = Halo("Leaks: ", placement="right").start()
+ 		try:
+ 			self.send_message(server, "teste\n-----\n")
+-			send_signal(server.pid, "INFO")
++			send_signal(server.pid, RESET_SIGNAL)
+ 			self.send_message(server, "Hello!!")
+ 			self.send_message(server, "Hello!!")
+ 			self.send_message(server, "Hello!!")
+@@ -307,7 +312,9 @@ class Fsoares(BaseExecutor):
+ 				f.writelines(content)
+ 			logger.info(f"file {file} rewritten")
+ 
+-		p = subprocess.run('grep --include=\\*.{c,h} -rnw ../__my_srcs -e "\\bmain\\b" | grep -v "//"',
++		# paco: no "{c,h}" brace expansion - that is a bash feature and this runs
++		# under /bin/sh, which is dash on Debian/Ubuntu: no main() was ever found.
++		p = subprocess.run('grep --include="*.c" --include="*.h" -rnw ../__my_srcs -e "\\bmain\\b" | grep -v "//"',
+ 		                   capture_output=True,
+ 		                   shell=True,
+ 		                   text=True)
+diff --git a/tests/minitalk/fsoares/wrapper_code.c b/tests/minitalk/fsoares/wrapper_code.c
+index aaf18af..b0396e1 100644
+--- a/tests/minitalk/fsoares/wrapper_code.c
++++ b/tests/minitalk/fsoares/wrapper_code.c
+@@ -359,6 +359,12 @@ void reset_mocks(int signal)
+ 	fflush(stdout);
+ }
+ 
++// paco: SIGINFO only exists on macOS/BSD. Linux uses SIGURG instead (also
++// ignored by default, so it never kills a student's server by accident).
++#ifndef SIGINFO
++# define SIGINFO SIGURG
++#endif
++
+ int main(int argn, char **args)
+ {
+ 	setup_framework(argn, (char **)args);

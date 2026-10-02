@@ -1,0 +1,29 @@
+name: selftest
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  selftest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint shell scripts
+        run: shellcheck -S warning paco install.sh uninstall.sh update.sh rebuild.sh patch-francinette.sh selftest/run.sh
+
+      - name: Build image
+        run: docker build -t paco-francinette .
+
+      - name: Image size
+        run: |
+          size=$(docker image inspect -f '{{.Size}}' paco-francinette)
+          echo "uncompressed image size: $((size / 1000000)) MB"
+          [ "$size" -lt 500000000 ]
+
+      - name: Run every tester against the reference projects
+        run: selftest/run.sh paco-francinette
