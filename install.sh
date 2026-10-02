@@ -86,13 +86,13 @@ case "$MODE" in native|docker) ;; *) die "PACO_MODE must be 'native' or 'docker'
 install_python_deps() {
 	local req="$FRANCINETTE_DIR/requirements.txt"
 	if python3 -m venv "$PACO_DIR/venv" >/dev/null 2>&1 \
-		&& "$PACO_DIR/venv/bin/python" -m pip install -q --no-cache-dir -r "$req" norminette; then
+		&& "$PACO_DIR/venv/bin/python" -m pip install -q --disable-pip-version-check --no-cache-dir -r "$req" norminette; then
 		return 0
 	fi
 	rm -rf "$PACO_DIR/venv"
 	warn "python3-venv is not available, installing the Python packages with pip --user."
-	python3 -m pip install -q --user --no-cache-dir -r "$req" norminette 2>/dev/null \
-		|| python3 -m pip install -q --user --no-cache-dir --break-system-packages -r "$req" norminette
+	python3 -m pip install -q --disable-pip-version-check --user --no-cache-dir -r "$req" norminette 2>/dev/null \
+		|| python3 -m pip install -q --disable-pip-version-check --user --no-cache-dir --break-system-packages -r "$req" norminette
 }
 
 if [ "$MODE" = "native" ]; then

@@ -26,11 +26,11 @@ if [ "$MODE" = "native" ]; then
 	"$PACO_DIR/patch-francinette.sh" "$FRANCINETTE_DIR"
 	req="$FRANCINETTE_DIR/requirements.txt"
 	if python3 -m venv "$PACO_DIR/venv" >/dev/null 2>&1; then
-		"$PACO_DIR/venv/bin/python" -m pip install -q --no-cache-dir -r "$req" norminette
+		"$PACO_DIR/venv/bin/python" -m pip install -q --disable-pip-version-check --no-cache-dir -r "$req" norminette
 	else
 		rm -rf "$PACO_DIR/venv"
-		python3 -m pip install -q --user --no-cache-dir -r "$req" norminette 2>/dev/null \
-			|| python3 -m pip install -q --user --no-cache-dir --break-system-packages -r "$req" norminette
+		python3 -m pip install -q --disable-pip-version-check --user --no-cache-dir -r "$req" norminette 2>/dev/null \
+			|| python3 -m pip install -q --disable-pip-version-check --user --no-cache-dir --break-system-packages -r "$req" norminette
 	fi
 elif [ "$MODE" = "docker" ]; then
 	log "Rebuilding the Docker image without cache"
