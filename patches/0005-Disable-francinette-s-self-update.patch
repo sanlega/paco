@@ -1,0 +1,23 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sanlega <santilega@gmail.com>
+Date: Fri, 2 Oct 2026 14:29:06 +0000
+Subject: [PATCH 05/11] Disable francinette's self-update
+
+paco handles updates; francinette must neither prompt to update itself
+nor hit the network on every run.
+---
+ utils/update.toml | 5 +++++
+ 1 file changed, 5 insertions(+)
+ create mode 100644 utils/update.toml
+
+diff --git a/utils/update.toml b/utils/update.toml
+new file mode 100644
+index 0000000..37b15e6
+--- /dev/null
++++ b/utils/update.toml
+@@ -0,0 +1,5 @@
++# Managed by paco: francinette must never try to update itself (paco
++# handles updates through update.sh), nor hit the network on every run.
++[paco]
++last_run = "2000-01-01 00:00:00"
++do_not_update = true

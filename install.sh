@@ -1,19 +1,23 @@
 #!/usr/bin/env bash
-# paco installer.
+# paco installer. Non-interactive: safe to run as
+#   bash -c "$(curl -fsSL https://raw.githubusercontent.com/sanlega/paco/main/install.sh)"
 #
-# Strategy: use as little disk/CPU as possible.
-#   1. If this is Linux and the real compiler toolchain (gcc, clang,
-#      valgrind, python3, libbsd/ncurses headers) is already present, install
-#      francinette straight onto the host. Zero container overhead.
-#   2. Otherwise (macOS, Windows/WSL without the toolchain, a locked-down
-#      Linux session without those packages...) fall back to the slim
-#      Docker image built from this repo, which only builds on first use.
+# 1. Removes any previous install (paco, the original francinette,
+#    francinette-image...) - see uninstall.sh. Installing always gives you a
+#    clean, current version.
+# 2. Native mode when the real toolchain is already there (Linux with gcc,
+#    clang, valgrind, libbsd/ncurses headers): zero container overhead.
+#    Docker mode otherwise (macOS, WSL without the toolchain...), with a slim
+#    image that runs exactly the same patched francinette.
 #
-# Both paths apply the same overlay/ patch (mandatory get_next_line bonus),
-# so behaviour is identical either way.
+# Environment overrides:
+#   INSTALL_DIR=/path     where to install (default: $HOME)
+#   PACO_MODE=native|docker   skip the auto-detection
+#   PACO_BRANCH=name      install another branch of paco (default: main)
 set -euo pipefail
 
-REPO_URL="https://github.com/sanlega/paco.git"
+REPO_URL="${PACO_REPO:-https://github.com/sanlega/paco.git}"
+BRANCH="${PACO_BRANCH:-main}"
 FRANCINETTE_URL="https://github.com/xicodomingues/francinette.git"
 
 WHITE=$'\033[0;37m'
@@ -24,134 +28,117 @@ YELLOW=$'\033[0;33m'
 B_WHITE=$'\033[1;37m'
 NC=$'\033[0m'
 
-log()  { printf "${BLUE}[paco]${NC} %s\n" "$1"; }
-ok()   { printf "${BLUE}[paco]${NC} ${WHITE}%s ${GREEN}OK${NC}\n" "$1"; }
-warn() { printf "${BLUE}[paco]${NC} ${YELLOW}%s${NC}\n" "$1"; }
-die()  { printf "${BLUE}[paco]${NC} ${RED}%s${NC}\n" "$1" >&2; exit 1; }
+log()  { printf '%s[paco]%s %s\n' "$BLUE" "$NC" "$1"; }
+ok()   { printf '%s[paco]%s %s%s %sOK%s\n' "$BLUE" "$NC" "$WHITE" "$1" "$GREEN" "$NC"; }
+warn() { printf '%s[paco]%s %s%s%s\n' "$BLUE" "$NC" "$YELLOW" "$1" "$NC"; }
+die()  { printf '%s[paco]%s %s%s%s\n' "$BLUE" "$NC" "$RED" "$1" "$NC" >&2; exit 1; }
 
-# Fully non-interactive: nothing below ever prompts, so this script can run
-# start to finish from `bash -c "$(curl ...)"` with no input. Override the
-# install directory by exporting INSTALL_DIR before running it.
+command -v git >/dev/null 2>&1 || die "git is required to install paco."
+
 INSTALL_DIR="${INSTALL_DIR:-$HOME}"
 mkdir -p "$INSTALL_DIR"
-# Resolve to an absolute path: the script later does 'cd' (e.g. into
-# francinette to pip install), and every relative path built from
-# INSTALL_DIR before that point would silently resolve against whatever
-# directory that 'cd' left us in instead.
+# Absolute path: everything below is built from it, and the script cd's around.
 INSTALL_DIR="$(cd "$INSTALL_DIR" && pwd)"
 export INSTALL_DIR
+cd "$INSTALL_DIR"
 
 PACO_DIR="$INSTALL_DIR/paco"
 FRANCINETTE_DIR="$INSTALL_DIR/francinette"
 
 # ---------------------------------------------------------------------------
-# 1. Fetch/update this repo (Dockerfile, overlay/, the paco CLI itself).
+# 1. Fetch the new version first, so a failed download leaves the current
+#    install untouched; then remove every previous version and move it in.
 # ---------------------------------------------------------------------------
-if [ -d "$PACO_DIR/.git" ]; then
-	log "Updating existing paco checkout in $PACO_DIR"
-	git -C "$PACO_DIR" pull --ff-only
-else
-	rm -rf "$PACO_DIR"
-	log "Cloning paco into $PACO_DIR"
-	git clone --depth 1 "$REPO_URL" "$PACO_DIR"
-fi
-chmod +x "$PACO_DIR/paco"
+NEW_DIR="$(mktemp -d "$INSTALL_DIR/.paco-install.XXXXXX")"
+trap 'rm -rf "$NEW_DIR"' EXIT
+log "Downloading paco ($BRANCH)"
+git clone -q --depth 1 --branch "$BRANCH" "$REPO_URL" "$NEW_DIR/paco" \
+	|| die "Could not download paco from $REPO_URL ($BRANCH)."
 
-apply_overlay() {
-	target="$1"
-	if [ -d "$PACO_DIR/overlay" ]; then
-		cp -RT "$PACO_DIR/overlay" "$target"
-	fi
-}
+log "Removing previous versions"
+bash "$NEW_DIR/paco/uninstall.sh" | sed 's/^/  /'
+mv "$NEW_DIR/paco" "$PACO_DIR"
+chmod +x "$PACO_DIR/paco" "$PACO_DIR"/*.sh
 
 # ---------------------------------------------------------------------------
-# 2. Decide native vs docker.
+# 2. Native or Docker.
 # ---------------------------------------------------------------------------
 can_go_native() {
 	[ "$(uname -s)" = "Linux" ] || return 1
-	for bin in gcc clang valgrind git python3 pip3 make; do
+	for bin in gcc clang clang++ valgrind make python3; do
 		command -v "$bin" >/dev/null 2>&1 || return 1
 	done
-	# libbsd-dev installs its public headers under an include/bsd/ dir,
-	# not as a top-level bsd*.h, on every distro that packages it this way.
+	python3 -m pip --version >/dev/null 2>&1 || python3 -m venv --help >/dev/null 2>&1 || return 1
+	# libbsd-dev ships include/bsd/, libncurses-dev ships ncurses.h/curses.h
 	{ [ -d /usr/include/bsd ] || [ -d /usr/local/include/bsd ]; } || return 1
 	{ [ -f /usr/include/ncurses.h ] || [ -f /usr/include/ncurses/ncurses.h ] \
 		|| [ -f /usr/include/curses.h ] || [ -f /usr/local/include/ncurses.h ]; } || return 1
-	return 0
 }
 
-MODE="docker"
-if can_go_native; then
-	MODE="native"
+MODE="${PACO_MODE:-}"
+if [ -z "$MODE" ]; then
+	if can_go_native; then MODE="native"; else MODE="docker"; fi
 fi
+case "$MODE" in native|docker) ;; *) die "PACO_MODE must be 'native' or 'docker'." ;; esac
+
+# Installs francinette's Python dependencies. A venv first (isolated, and
+# immune to PEP 668 "externally managed environment" errors); --user, then
+# --break-system-packages, as fallbacks for systems without python3-venv.
+install_python_deps() {
+	local req="$FRANCINETTE_DIR/requirements.txt"
+	if python3 -m venv "$PACO_DIR/venv" >/dev/null 2>&1 \
+		&& "$PACO_DIR/venv/bin/python" -m pip install -q --no-cache-dir -r "$req" norminette; then
+		return 0
+	fi
+	rm -rf "$PACO_DIR/venv"
+	warn "python3-venv is not available, installing the Python packages with pip --user."
+	python3 -m pip install -q --user --no-cache-dir -r "$req" norminette 2>/dev/null \
+		|| python3 -m pip install -q --user --no-cache-dir --break-system-packages -r "$req" norminette
+}
 
 if [ "$MODE" = "native" ]; then
-	log "Native toolchain detected: installing francinette directly (no Docker needed)."
-	if [ -d "$FRANCINETTE_DIR/.git" ]; then
-		log "Updating existing francinette checkout in $FRANCINETTE_DIR"
-		git -C "$FRANCINETTE_DIR" pull --ff-only
-		git -C "$FRANCINETTE_DIR" submodule update --init --recursive
-	else
-		rm -rf "$FRANCINETTE_DIR"
-		git clone --recursive --shallow-submodules --depth 1 "$FRANCINETTE_URL" "$FRANCINETTE_DIR"
-	fi
-	apply_overlay "$FRANCINETTE_DIR"
-
-	cd "$FRANCINETTE_DIR"
-	if ! pip3 install --user --no-cache-dir -r requirements.txt norminette; then
-		warn "pip install failed in the default environment, forcing --break-system-packages."
-		pip3 install --user --no-cache-dir --break-system-packages -r requirements.txt norminette \
-			|| die "Could not install francinette's Python dependencies."
-	fi
-	echo "native" > "$PACO_DIR/.mode"
+	log "Native toolchain found: installing francinette directly (no Docker needed)"
+	git clone -q --recursive --shallow-submodules --depth 1 "$FRANCINETTE_URL" "$FRANCINETTE_DIR" \
+		|| die "Could not download francinette."
+	"$PACO_DIR/patch-francinette.sh" "$FRANCINETTE_DIR" || die "Could not apply paco's patches to francinette."
+	install_python_deps || die "Could not install francinette's Python dependencies."
+	echo native > "$PACO_DIR/.mode"
 	ok "francinette installed natively in $FRANCINETTE_DIR"
 else
-	if ! command -v docker >/dev/null 2>&1; then
-		die "Docker is required on this system (no native toolchain was found) but was not found in PATH. Install Docker Desktop / Docker Engine and re-run this script."
+	command -v docker >/dev/null 2>&1 \
+		|| die "No native toolchain found, and Docker is not installed. Install Docker Desktop / Docker Engine (or gcc, clang, valgrind, libbsd-dev, libncurses-dev) and run this again."
+	echo docker > "$PACO_DIR/.mode"
+	if docker info >/dev/null 2>&1; then
+		log "Building the Docker image (only this once, a few minutes)"
+		"$PACO_DIR/paco" --prepare || die "Could not build the Docker image."
+		ok "paco set up in Docker mode"
+	else
+		ok "paco set up in Docker mode"
+		warn "Docker is not running right now: the image will be built the first time you run paco."
 	fi
-	log "No usable native toolchain found: paco will run through the slim Docker image instead."
-	log "The image builds automatically the first time you run 'paco' (or 'francinette') in a project."
-	mkdir -p "$PACO_DIR/logs" "$PACO_DIR/temp"
-	echo "docker" > "$PACO_DIR/.mode"
-	ok "paco set up in Docker mode"
 fi
 
 # ---------------------------------------------------------------------------
-# 3. Wire up the 'paco' / 'francinette' commands for every shell rc file
-#    this user actually has (bash and/or zsh), instead of assuming zsh.
+# 3. 'paco' and 'francinette' commands, for whichever of bash/zsh you use.
 # ---------------------------------------------------------------------------
-BLOCK_START="# >>> paco (francinette) >>>"
-BLOCK_END="# <<< paco (francinette) <<<"
-
 write_block() {
-	rc_file="$1"
-	[ -f "$rc_file" ] || touch "$rc_file"
-	if grep -qF "$BLOCK_START" "$rc_file" 2>/dev/null; then
-		# remove the previous block so we can rewrite it cleanly (idempotent installs/updates)
-		sed -i.bak "/$BLOCK_START/,/$BLOCK_END/d" "$rc_file" && rm -f "$rc_file.bak"
-	fi
+	local rc="$1"
 	{
 		echo ""
-		echo "$BLOCK_START"
-		echo "export PATH=\"\$HOME/.local/bin:\$PATH\""
+		echo "# >>> paco (francinette) >>>"
 		echo "alias paco=\"$PACO_DIR/paco\""
 		echo "alias francinette=\"$PACO_DIR/paco\""
-		echo "$BLOCK_END"
-	} >> "$rc_file"
+		echo "# <<< paco (francinette) <<<"
+	} >> "$rc"
 }
 
-wrote_any=0
+user_rc="$HOME/.$(basename "${SHELL:-/bin/bash}")rc"
 for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
-	if [ -f "$rc" ] || [ "$rc" = "$HOME/.$( basename "${SHELL:-/bin/bash}" )rc" ]; then
+	if [ -f "$rc" ] || [ "$rc" = "$user_rc" ]; then
 		write_block "$rc"
-		wrote_any=1
 	fi
 done
-if [ "$wrote_any" -eq 0 ]; then
-	# Neither rc file existed yet (fresh account): create the one matching $SHELL.
-	write_block "$HOME/.$( basename "${SHELL:-/bin/bash}" )rc"
-fi
 
-ok "Installation completed!"
-printf '%s\n' "${WHITE}Use the ${B_WHITE}paco${WHITE} (or ${B_WHITE}francinette${WHITE}) command inside a project directory.${NC}"
-printf '%s\n' "${WHITE}Open a new shell, or run: ${B_WHITE}source ~/.bashrc${WHITE} (or ~/.zshrc) to use it now.${NC}"
+echo
+ok "Installation completed"
+printf '%s\n' "${WHITE}Open a new terminal (or run ${B_WHITE}source $user_rc${WHITE}), then run ${B_WHITE}paco${WHITE} inside a project folder.${NC}"

@@ -1,0 +1,120 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sanlega <santilega@gmail.com>
+Date: Fri, 2 Oct 2026 14:40:44 +0000
+Subject: [PATCH 10/11] libftTester: compile and run the tests in parallel
+
+One job per core, results still printed in the original order. This
+tester alone took more than a third of a whole libft run.
+---
+ testers/libft/Tripouille.py | 64 ++++++++++++++++++++++---------------
+ 1 file changed, 38 insertions(+), 26 deletions(-)
+
+diff --git a/testers/libft/Tripouille.py b/testers/libft/Tripouille.py
+index b344470..89a0acf 100644
+--- a/testers/libft/Tripouille.py
++++ b/testers/libft/Tripouille.py
+@@ -1,8 +1,10 @@
++import glob
+ import logging
+ import os
+ import re
+ import subprocess
+ import sys
++from concurrent.futures import ThreadPoolExecutor
+ 
+ from halo import Halo
+ from testers.libft.BaseExecutor import remove_ansi_colors
+@@ -12,6 +14,12 @@ from utils.Utils import is_linux
+ 
+ logger = logging.getLogger("tripouille")
+ 
++# paco: compile and run the per-function tests in parallel (one job per
++# core) instead of one after the other - this tester alone used to take
++# more than a third of a whole libft run. Results are still printed in
++# the original order.
++JOBS = max(1, os.cpu_count() or 1)
++
+ 
+ class Tripouille():
+ 
+@@ -32,33 +40,33 @@ class Tripouille():
+ 
+ 	def compile_test(self):
+ 
+-		def compile_executable(function, spinner):
+-			command = (f"clang++ -ldl -D TIMEOUT={get_timeout()} check.o color.o leaks.o sigsegv.o ft_{function}_test.o" +
+-			           f" -o ft_{function}.out -L. -lft -I. -I utils")
++		def run(command):
+ 			res = subprocess.run(command, shell=True, capture_output=True, text=True)
+ 			logger.info(res)
+-			if res.returncode != 0:
+-				spinner.fail()
+-				print(res.stderr)
+-				raise Exception(f"Problem creating executable for {function}")
++			return res
++
++		def compile_object(source):
++			return run(f"clang++ -D TIMEOUT={get_timeout()} -c -std=c++11 -I utils/ -I . {source}")
++
++		def compile_executable(function):
++			return run(f"clang++ -ldl -D TIMEOUT={get_timeout()} check.o color.o leaks.o sigsegv.o ft_{function}_test.o" +
++			           f" -o ft_{function}.out -L. -lft -I. -I utils")
++
++		def check(results, spinner, message):
++			for res in results:
++				if res.returncode != 0:
++					spinner.fail()
++					print(res.stderr)
++					raise Exception(message)
+ 
+ 		os.chdir(self.temp_dir)
+ 		logger.info(f"On directory {os.getcwd()} compiling tests for Tripouille")
+ 
+ 		text = f"{TC.CYAN}Compiling tests: {TC.B_WHITE}{self.name}{TC.NC} ({self.git_url})"
+-		with Halo(text=text) as spinner:
+-			command = f"clang++ -D TIMEOUT={get_timeout()} -c -std=c++11 -I utils/ -I . utils/*.cpp "
+-			for file in self.to_execute:
+-				command += f"tests/ft_{file}_test.cpp "
+-
+-			res = subprocess.run(command, shell=True, capture_output=True, text=True)
+-			logger.info(res)
+-			if res.returncode != 0:
+-				spinner.fail()
+-				print(res.stderr)
+-				raise Exception("Problem compiling tests")
+-			for function in self.to_execute:
+-				compile_executable(function, spinner)
++		with Halo(text=text) as spinner, ThreadPoolExecutor(JOBS) as pool:
++			sources = sorted(glob.glob("utils/*.cpp")) + [f"tests/ft_{func}_test.cpp" for func in self.to_execute]
++			check(pool.map(compile_object, sources), spinner, "Problem compiling tests")
++			check(pool.map(compile_executable, self.to_execute), spinner, "Problem creating the test executables")
+ 			spinner.succeed()
+ 
+ 	def execute_tests(self):
+@@ -85,16 +93,20 @@ class Tripouille():
+ 			else:
+ 				return f"./ft_{function}.out"
+ 
+-		def execute_single_test(function):
+-			spinner.start(f"ft_{function.ljust(13)}:")
++		def run_single_test(function):
+ 			command = get_command(function)
+ 			logger.info(f"executing {command}")
+ 			p = subprocess.run(command, capture_output=True, text=True, shell=True)
+ 			logger.info(p)
+-			output = get_output(p)
+-			return parse_line(remove_ansi_colors(output))
+-
+-		results = [execute_single_test(func) for func in self.to_execute]
++			return p
++
++		results = []
++		with ThreadPoolExecutor(JOBS) as pool:
++			running = [(func, pool.submit(run_single_test, func)) for func in self.to_execute]
++			for func, future in running:
++				spinner.start(f"ft_{func.ljust(13)}:")
++				output = get_output(future.result())
++				results.append(parse_line(remove_ansi_colors(output)))
+ 		spinner.stop()
+ 		logger.info(f"results: {results}")
+ 		print()

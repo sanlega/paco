@@ -1,0 +1,67 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sanlega <santilega@gmail.com>
+Date: Fri, 2 Oct 2026 14:30:08 +0000
+Subject: [PATCH 06/11] libft: still build a separate bonus rule when there is
+ one
+
+With bonus graded as mandatory, 'all' is expected to build everything.
+Projects that keep the historical separate 'bonus:' rule had their
+bonus functions missing from libft.a, so every list test failed. Call
+that rule too when it exists.
+---
+ testers/libft/Libft.py | 11 +++++++----
+ utils/Utils.py         | 10 ++++++++++
+ 2 files changed, 17 insertions(+), 4 deletions(-)
+
+diff --git a/testers/libft/Libft.py b/testers/libft/Libft.py
+index f401a34..c02ba62 100644
+--- a/testers/libft/Libft.py
++++ b/testers/libft/Libft.py
+@@ -12,9 +12,9 @@ from testers.libft.BaseExecutor import (BONUS_FUNCTIONS, PART_1_FUNCTIONS,
+ from testers.libft.Fsoares import Fsoares
+ from testers.libft.Tripouille import Tripouille
+ from testers.libft.WarMachine import WarMachine
+-from utils.ExecutionContext import TestRunInfo, set_bonus
++from utils.ExecutionContext import TestRunInfo, has_bonus, set_bonus
+ from utils.TerminalColors import TC
+-from utils.Utils import is_makefile_project
++from utils.Utils import has_bonus_rule, is_makefile_project
+ 
+ logger = logging.getLogger("libft")
+ 
+@@ -87,9 +87,12 @@ class Libft(BaseTester):
+ 		makefile = Path(self.temp_dir, "Makefile")
+ 		if not makefile.exists():
+ 			return
+-		# No more separate "bonus" Makefile target to call - "all" builds
+-		# everything now, bonus functions included.
++		# "all" builds everything now, bonus functions included. Projects that
++		# still keep a separate "bonus" rule get it called too, so their bonus
++		# functions exist in libft.a before being tested.
+ 		command = "make fclean all"
++		if has_bonus() and has_bonus_rule(self.temp_dir):
++			command += " bonus"
+ 		logger.info(f"Calling '{command}' on directory {os.getcwd()}")
+ 
+ 		text = f"{TC.CYAN}Executing: {TC.B_WHITE}{command}{TC.NC}"
+diff --git a/utils/Utils.py b/utils/Utils.py
+index 1b49617..cc6104f 100644
+--- a/utils/Utils.py
++++ b/utils/Utils.py
+@@ -97,6 +97,16 @@ def is_makefile_project(current_path, project_name, project_class):
+ 	return False
+ 
+ 
++def has_bonus_rule(project_dir):
++	"""True if the Makefile in project_dir still has a separate 'bonus:' rule
++	(the historical layout, where 'all' does not build the bonus part)."""
++	make_path = Path(project_dir, "Makefile")
++	if not make_path.exists():
++		return False
++	with open(make_path, "r", errors="replace") as mk:
++		return any(re.match(r"^\s*bonus\s*:", line) for line in mk)
++
++
+ def is_linux():
+ 	return sys.platform.startswith("linux")
+ 

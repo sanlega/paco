@@ -1,0 +1,205 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sanlega <santilega@gmail.com>
+Date: Fri, 2 Oct 2026 14:29:06 +0000
+Subject: [PATCH 01/11] Fix fsoares testers silently passing on Linux
+
+In the parent process errors_file is never opened (only the forked
+test child opens it), so add_to_error_file() did fclose(NULL) and
+segfaulted the whole tester as soon as any test failed. With no output
+left to parse, francinette then reported that tester as passed.
+
+Also make the per-test errors_file unbuffered: glibc malloc()s a stream
+buffer on the first write, which happened inside the test window and was
+reported as a 4 KB leak in the function under test.
+
+printf/fsoares additionally hardcoded -fsanitize=address, which crashes
+the malloc mock during ASan's own startup on Linux before main() runs.
+---
+ tests/get_next_line/fsoares/utils/utils.c |  8 +++++++-
+ tests/get_next_line/fsoares/utils/utils.h |  2 ++
+ tests/libft/fsoares/utils/utils.c         |  8 +++++++-
+ tests/libft/fsoares/utils/utils.h         |  2 ++
+ tests/printf/fsoares/Makefile             | 10 ++++++++++
+ tests/printf/fsoares/utils/utils.c        |  8 +++++++-
+ tests/printf/fsoares/utils/utils.h        |  2 ++
+ tests/utils/utils.c                       |  8 +++++++-
+ tests/utils/utils.h                       |  2 ++
+ 9 files changed, 46 insertions(+), 4 deletions(-)
+
+diff --git a/tests/get_next_line/fsoares/utils/utils.c b/tests/get_next_line/fsoares/utils/utils.c
+index 09b29ef..98f83e8 100644
+--- a/tests/get_next_line/fsoares/utils/utils.c
++++ b/tests/get_next_line/fsoares/utils/utils.c
+@@ -313,7 +313,13 @@ int error(const char *format, ...)
+ void add_to_error_file()
+ {
+ 	char buf[1024];
+-	fclose(errors_file);
++	/* paco: in the parent process errors_file was never opened (only the
++	   forked test child opens it), so fclose(NULL) segfaulted the whole
++	   tester the moment any test failed - and that crash, with no output,
++	   was then reported as "all tests passed". */
++	if (errors_file)
++		fclose(errors_file);
++	errors_file = NULL;
+ 
+ 	FILE *file, *final_file;
+ 	size_t nread;
+diff --git a/tests/get_next_line/fsoares/utils/utils.h b/tests/get_next_line/fsoares/utils/utils.h
+index 0fa3938..41547c7 100644
+--- a/tests/get_next_line/fsoares/utils/utils.h
++++ b/tests/get_next_line/fsoares/utils/utils.h
+@@ -136,6 +136,7 @@ struct alloc_node
+ 		fflush(stdout);                         \
+ 		int res = 1;                            \
+ 		errors_file = fopen("errors.log", "w"); \
++		setvbuf(errors_file, NULL, _IONBF, 0);  \
+ 		reset_malloc_mock();                    \
+ 		code;                                   \
+ 		fclose(errors_file);                    \
+@@ -155,6 +156,7 @@ struct alloc_node
+ 		fflush(stdout);                               \
+ 		int res = 1;                                  \
+ 		errors_file = fopen("errors.log", "w");       \
++		setvbuf(errors_file, NULL, _IONBF, 0);        \
+ 		reset_malloc_mock();                          \
+ 		code;                                         \
+ 		fclose(errors_file);                          \
+diff --git a/tests/libft/fsoares/utils/utils.c b/tests/libft/fsoares/utils/utils.c
+index 09b29ef..98f83e8 100644
+--- a/tests/libft/fsoares/utils/utils.c
++++ b/tests/libft/fsoares/utils/utils.c
+@@ -313,7 +313,13 @@ int error(const char *format, ...)
+ void add_to_error_file()
+ {
+ 	char buf[1024];
+-	fclose(errors_file);
++	/* paco: in the parent process errors_file was never opened (only the
++	   forked test child opens it), so fclose(NULL) segfaulted the whole
++	   tester the moment any test failed - and that crash, with no output,
++	   was then reported as "all tests passed". */
++	if (errors_file)
++		fclose(errors_file);
++	errors_file = NULL;
+ 
+ 	FILE *file, *final_file;
+ 	size_t nread;
+diff --git a/tests/libft/fsoares/utils/utils.h b/tests/libft/fsoares/utils/utils.h
+index 0fa3938..41547c7 100644
+--- a/tests/libft/fsoares/utils/utils.h
++++ b/tests/libft/fsoares/utils/utils.h
+@@ -136,6 +136,7 @@ struct alloc_node
+ 		fflush(stdout);                         \
+ 		int res = 1;                            \
+ 		errors_file = fopen("errors.log", "w"); \
++		setvbuf(errors_file, NULL, _IONBF, 0);  \
+ 		reset_malloc_mock();                    \
+ 		code;                                   \
+ 		fclose(errors_file);                    \
+@@ -155,6 +156,7 @@ struct alloc_node
+ 		fflush(stdout);                               \
+ 		int res = 1;                                  \
+ 		errors_file = fopen("errors.log", "w");       \
++		setvbuf(errors_file, NULL, _IONBF, 0);        \
+ 		reset_malloc_mock();                          \
+ 		code;                                         \
+ 		fclose(errors_file);                          \
+diff --git a/tests/printf/fsoares/Makefile b/tests/printf/fsoares/Makefile
+index 2d4da9d..943135e 100644
+--- a/tests/printf/fsoares/Makefile
++++ b/tests/printf/fsoares/Makefile
+@@ -9,6 +9,16 @@ ifdef EXEC_STRICT
+ STRICT		= -D STRICT_MEM
+ endif
+ 
++# paco: on Linux, AddressSanitizer runs its interceptor setup (which calls
++# malloc) before it maps its shadow memory, so the instrumented malloc mock
++# in utils/malloc_mock.c segfaulted the test binary before main() - and the
++# silent crash was reported as "all tests passed". Leaks are still caught by
++# the malloc mock itself; francinette already drops ASan on Linux for the
++# same reason everywhere else (see add_sanitizer_to_makefiles).
++ifeq ($(shell uname -s),Linux)
++CFLAGS		:= $(filter-out -fsanitize=address,$(CFLAGS))
++endif
++
+ # SDK headers shipping w/Xcode 14.1 (22/11/01)
+ # and later deprecate some functions used here
+ CFLAGS		+= -Wno-deprecated-declarations
+diff --git a/tests/printf/fsoares/utils/utils.c b/tests/printf/fsoares/utils/utils.c
+index 09b29ef..98f83e8 100644
+--- a/tests/printf/fsoares/utils/utils.c
++++ b/tests/printf/fsoares/utils/utils.c
+@@ -313,7 +313,13 @@ int error(const char *format, ...)
+ void add_to_error_file()
+ {
+ 	char buf[1024];
+-	fclose(errors_file);
++	/* paco: in the parent process errors_file was never opened (only the
++	   forked test child opens it), so fclose(NULL) segfaulted the whole
++	   tester the moment any test failed - and that crash, with no output,
++	   was then reported as "all tests passed". */
++	if (errors_file)
++		fclose(errors_file);
++	errors_file = NULL;
+ 
+ 	FILE *file, *final_file;
+ 	size_t nread;
+diff --git a/tests/printf/fsoares/utils/utils.h b/tests/printf/fsoares/utils/utils.h
+index 0fa3938..41547c7 100644
+--- a/tests/printf/fsoares/utils/utils.h
++++ b/tests/printf/fsoares/utils/utils.h
+@@ -136,6 +136,7 @@ struct alloc_node
+ 		fflush(stdout);                         \
+ 		int res = 1;                            \
+ 		errors_file = fopen("errors.log", "w"); \
++		setvbuf(errors_file, NULL, _IONBF, 0);  \
+ 		reset_malloc_mock();                    \
+ 		code;                                   \
+ 		fclose(errors_file);                    \
+@@ -155,6 +156,7 @@ struct alloc_node
+ 		fflush(stdout);                               \
+ 		int res = 1;                                  \
+ 		errors_file = fopen("errors.log", "w");       \
++		setvbuf(errors_file, NULL, _IONBF, 0);        \
+ 		reset_malloc_mock();                          \
+ 		code;                                         \
+ 		fclose(errors_file);                          \
+diff --git a/tests/utils/utils.c b/tests/utils/utils.c
+index 09b29ef..98f83e8 100644
+--- a/tests/utils/utils.c
++++ b/tests/utils/utils.c
+@@ -313,7 +313,13 @@ int error(const char *format, ...)
+ void add_to_error_file()
+ {
+ 	char buf[1024];
+-	fclose(errors_file);
++	/* paco: in the parent process errors_file was never opened (only the
++	   forked test child opens it), so fclose(NULL) segfaulted the whole
++	   tester the moment any test failed - and that crash, with no output,
++	   was then reported as "all tests passed". */
++	if (errors_file)
++		fclose(errors_file);
++	errors_file = NULL;
+ 
+ 	FILE *file, *final_file;
+ 	size_t nread;
+diff --git a/tests/utils/utils.h b/tests/utils/utils.h
+index 0fa3938..41547c7 100644
+--- a/tests/utils/utils.h
++++ b/tests/utils/utils.h
+@@ -136,6 +136,7 @@ struct alloc_node
+ 		fflush(stdout);                         \
+ 		int res = 1;                            \
+ 		errors_file = fopen("errors.log", "w"); \
++		setvbuf(errors_file, NULL, _IONBF, 0);  \
+ 		reset_malloc_mock();                    \
+ 		code;                                   \
+ 		fclose(errors_file);                    \
+@@ -155,6 +156,7 @@ struct alloc_node
+ 		fflush(stdout);                               \
+ 		int res = 1;                                  \
+ 		errors_file = fopen("errors.log", "w");       \
++		setvbuf(errors_file, NULL, _IONBF, 0);        \
+ 		reset_malloc_mock();                          \
+ 		code;                                         \
+ 		fclose(errors_file);                          \

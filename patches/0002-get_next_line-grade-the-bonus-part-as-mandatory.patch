@@ -1,0 +1,75 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sanlega <santilega@gmail.com>
+Date: Fri, 2 Oct 2026 14:29:06 +0000
+Subject: [PATCH 02/11] get_next_line: grade the bonus part as mandatory
+
+No more *_bonus files: bonus lives in get_next_line.c/.h and
+get_next_line_utils.c, and is tested unless -m is passed. The vendored
+testers still expect the *_bonus names, so the regular files are aliased
+onto them inside the temporary working directory.
+---
+ testers/get_next_line/GetNextLine.py | 36 +++++++++++++++++++++++-----
+ 1 file changed, 30 insertions(+), 6 deletions(-)
+
+diff --git a/testers/get_next_line/GetNextLine.py b/testers/get_next_line/GetNextLine.py
+index 762467c..792c80e 100644
+--- a/testers/get_next_line/GetNextLine.py
++++ b/testers/get_next_line/GetNextLine.py
+@@ -1,14 +1,27 @@
+ import logging
+-from pathlib import Path
++import shutil
+ from testers.BaseTester import BaseTester
+ from testers.get_next_line.Fsoares import Fsoares
+ 
+ from testers.get_next_line.Tripouille import Tripouille
+-from utils.ExecutionContext import TestRunInfo, has_bonus, is_strict, set_bonus
++from utils.ExecutionContext import TestRunInfo, set_bonus
+ from utils.Utils import show_banner
+ 
+ logger = logging.getLogger("gnl")
+ 
++# Campus rule: the bonus part of get_next_line is now mandatory, so students
++# no longer split it into "*_bonus" files - everything lives in the normal
++# get_next_line.c / get_next_line.h / get_next_line_utils.c files. The
++# upstream test harnesses (fsoares, and the vendored Tripouille gnlTester)
++# still look for the historical "*_bonus" filenames, so instead of patching
++# that third-party code we alias the mandatory files onto those names once
++# the source has been copied into the working directory.
++BONUS_ALIASES = {
++	"get_next_line.c": "get_next_line_bonus.c",
++	"get_next_line.h": "get_next_line_bonus.h",
++	"get_next_line_utils.c": "get_next_line_utils_bonus.c",
++}
++
+ 
+ class GetNextLine(BaseTester):
+ 
+@@ -19,12 +32,23 @@ class GetNextLine(BaseTester):
+ 
+ 	def __init__(self, info: TestRunInfo) -> None:
+ 		super().__init__(info)
+-		if (info.source_dir / "get_next_line_bonus.c").exists() \
+-				and not info.args.mandatory:
+-			logger.info("Has bonus")
+-			set_bonus(True)
+ 		self.execute_testers()
+ 
++	def select_tests_to_execute(self):
++		if not self.info.args.mandatory:
++			logger.info("Bonus is mandatory, testing it along with the mandatory part")
++			set_bonus(True)
++			self._alias_bonus_files()
++		return []
++
++	def _alias_bonus_files(self):
++		for mandatory_name, bonus_name in BONUS_ALIASES.items():
++			mandatory_file = self.temp_dir / mandatory_name
++			bonus_file = self.temp_dir / bonus_name
++			if mandatory_file.exists() and not bonus_file.exists():
++				logger.info(f"Aliasing {mandatory_file} as {bonus_file}")
++				shutil.copyfile(mandatory_file, bonus_file)
++
+ 	@staticmethod
+ 	def is_project(current_path):
+ 		file_path = current_path / 'get_next_line.c'

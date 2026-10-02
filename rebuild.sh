@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Forces a clean rebuild: in docker mode, drops the container/image and
-# rebuilds from scratch (no layer cache); in native mode, wipes the
-# francinette checkout and reinstalls it.
+# Rebuilds paco's runtime from scratch: the Docker image without any layer
+# cache (Docker mode), or a fresh francinette checkout (native mode). Use it
+# if something got corrupted. Also available as `paco --rebuild`.
 set -euo pipefail
 
 BLUE=$'\033[0;36m'
@@ -9,29 +9,34 @@ WHITE=$'\033[0;37m'
 GREEN=$'\033[0;32m'
 RED=$'\033[0;31m'
 NC=$'\033[0m'
-log() { printf "${BLUE}[paco]${NC} ${WHITE}%s${NC}\n" "$1"; }
-die() { printf "${BLUE}[paco]${NC} ${RED}%s${NC}\n" "$1" >&2; exit 1; }
+log() { printf '%s[paco]%s %s%s%s\n' "$BLUE" "$NC" "$WHITE" "$1" "$NC"; }
+die() { printf '%s[paco]%s %s%s%s\n' "$BLUE" "$NC" "$RED" "$1" "$NC" >&2; exit 1; }
 
-# Non-interactive: defaults to $HOME (where install.sh defaults to too)
-# unless INSTALL_DIR is exported to point somewhere else.
-INSTALL_DIR="${INSTALL_DIR:-$HOME}"
-[ -d "$INSTALL_DIR" ] && INSTALL_DIR="$(cd "$INSTALL_DIR" && pwd)"
+PACO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+INSTALL_DIR="$(dirname "$PACO_DIR")"
+FRANCINETTE_DIR="$INSTALL_DIR/francinette"
+MODE="$(cat "$PACO_DIR/.mode" 2>/dev/null || true)"
 
-PACO_DIR="$INSTALL_DIR/paco"
-[ -d "$PACO_DIR" ] || die "paco is not installed in $PACO_DIR. Run install.sh first."
-
-MODE="$(cat "$PACO_DIR/.mode" 2>/dev/null || echo docker)"
-
+rm -rf "$PACO_DIR/logs" "$PACO_DIR/temp"
 if [ "$MODE" = "native" ]; then
-	rm -rf "$INSTALL_DIR/francinette"
-	log "Removed native francinette checkout, reinstalling"
-	INSTALL_DIR="$INSTALL_DIR" bash "$PACO_DIR/install.sh"
+	log "Reinstalling francinette from scratch"
+	rm -rf "$FRANCINETTE_DIR" "$PACO_DIR/venv"
+	git clone -q --recursive --shallow-submodules --depth 1 \
+		https://github.com/xicodomingues/francinette.git "$FRANCINETTE_DIR" || die "Could not download francinette."
+	"$PACO_DIR/patch-francinette.sh" "$FRANCINETTE_DIR"
+	req="$FRANCINETTE_DIR/requirements.txt"
+	if python3 -m venv "$PACO_DIR/venv" >/dev/null 2>&1; then
+		"$PACO_DIR/venv/bin/python" -m pip install -q --no-cache-dir -r "$req" norminette
+	else
+		rm -rf "$PACO_DIR/venv"
+		python3 -m pip install -q --user --no-cache-dir -r "$req" norminette 2>/dev/null \
+			|| python3 -m pip install -q --user --no-cache-dir --break-system-packages -r "$req" norminette
+	fi
+elif [ "$MODE" = "docker" ]; then
+	log "Rebuilding the Docker image without cache"
+	"$PACO_DIR/paco" --build-image
 else
-	command -v docker >/dev/null 2>&1 || die "docker not found in PATH."
-	docker rm -f paco-runner >/dev/null 2>&1 || true
-	docker rmi -f paco-francinette >/dev/null 2>&1 || true
-	log "Removed docker image/container, rebuilding"
-	docker build --no-cache -t paco-francinette "$PACO_DIR"
+	die "paco is not installed correctly. Run install.sh again."
 fi
 
-printf '%s\n' "${BLUE}[paco]${NC} ${WHITE}Rebuilt ${GREEN}OK${NC}"
+printf '%s[paco]%s %sRebuilt %sOK%s\n' "$BLUE" "$NC" "$WHITE" "$GREEN" "$NC"

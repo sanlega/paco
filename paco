@@ -1,92 +1,163 @@
 #!/usr/bin/env bash
-# paco - runs francinette against the project in the current directory.
+# paco - runs francinette (the 42 project tester) on the project in the
+# current directory.
 #
-# Native mode: this is a thin exec into francinette/main.py, nothing else
-# happens - there is no container to manage.
+#   paco [francinette options]   test the project in the current directory
+#   paco --update                update paco (and francinette)
+#   paco --rebuild               rebuild the Docker image / reinstall francinette
+#   paco --uninstall             remove paco completely
+#   paco --version               show the installed version
 #
-# Docker mode: the runner container is started lazily on first use and left
-# running (like a dev-container) so every subsequent call is just a fast
-# `docker exec`, instead of paying container-startup cost on every command.
+# Native mode runs francinette directly. Docker mode keeps one runner
+# container alive between runs, so each call is a fast `docker exec`, and
+# rebuilds the image by itself whenever paco has been updated.
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
-INSTALL_DIR="$(dirname "$SCRIPT_DIR")"
-MODE_FILE="$SCRIPT_DIR/.mode"
-IMAGE_NAME="paco-francinette"
-CONTAINER_NAME="paco-runner"
+PACO_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")")" >/dev/null 2>&1 && pwd)"
+INSTALL_DIR="$(dirname "$PACO_DIR")"
+FRANCINETTE_DIR="$INSTALL_DIR/francinette"
+IMAGE="paco-francinette"
+CONTAINER="paco-runner"
 
-if [ ! -f "$MODE_FILE" ]; then
-	echo "paco: not installed correctly (missing $MODE_FILE). Re-run install.sh." >&2
-	exit 1
-fi
-MODE="$(cat "$MODE_FILE")"
+BLUE=$'\033[0;36m'
+RED=$'\033[0;31m'
+NC=$'\033[0m'
+info() { printf '%s[paco]%s %s\n' "$BLUE" "$NC" "$1" >&2; }
+die()  { printf '%s[paco]%s %s%s%s\n' "$BLUE" "$NC" "$RED" "$1" "$NC" >&2; exit 1; }
 
-if [ "$MODE" = "native" ]; then
-	FRANCINETTE_DIR="$INSTALL_DIR/francinette"
-	if [ ! -f "$FRANCINETTE_DIR/main.py" ]; then
-		echo "paco: francinette is not installed in $FRANCINETTE_DIR. Re-run install.sh." >&2
-		exit 1
+MODE="$(cat "$PACO_DIR/.mode" 2>/dev/null || true)"
+[ -n "$MODE" ] || die "paco is not installed correctly (missing $PACO_DIR/.mode). Run install.sh again."
+
+version() { git -C "$PACO_DIR" log -1 --format='%h (%cs)' 2>/dev/null || echo unknown; }
+
+# Hash of everything the Docker image is built from: when it changes (after
+# an update), the image is rebuilt automatically on the next run.
+image_hash() {
+	(cd "$PACO_DIR" && cat Dockerfile patch-francinette.sh patches/*.patch) | cksum | cut -d ' ' -f 1
+}
+
+docker_ready() {
+	command -v docker >/dev/null 2>&1 || die "Docker is required but was not found in PATH."
+	docker info >/dev/null 2>&1 \
+		|| die "Docker is not running (or not reachable). Start Docker Desktop / the docker service and try again."
+}
+
+build_image() {
+	local hash
+	hash="$(image_hash)"
+	docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+	docker build "$@" --label "paco.hash=$hash" -t "$IMAGE" "$PACO_DIR" >&2
+	docker image prune -f --filter "label=paco.hash" >/dev/null 2>&1 || true
+}
+
+ensure_image() {
+	local current
+	current="$(docker image inspect -f '{{ index .Config.Labels "paco.hash" }}' "$IMAGE" 2>/dev/null || true)"
+	if [ -z "$current" ]; then
+		info "Building the runner image (first run only, this takes a few minutes)..."
+		build_image
+	elif [ "$current" != "$(image_hash)" ]; then
+		info "paco was updated: rebuilding the runner image..."
+		build_image
 	fi
-	# Not execing tester.sh: it sources a venv/bin/activate that install.sh never
-	# creates (deps are installed with --user, no venv needed) and falls back to
-	# plain 'python', which plenty of stock Ubuntu installs don't provide at all.
-	exec python3 "$FRANCINETTE_DIR/main.py" "$@"
-fi
-
-# --- docker mode ---
-if ! command -v docker >/dev/null 2>&1; then
-	echo "paco: docker is required but was not found in PATH." >&2
-	exit 1
-fi
-
-if ! docker info >/dev/null 2>&1; then
-	echo "paco: the Docker daemon is not running (or not reachable). Start Docker Desktop / the docker service and try again." >&2
-	exit 1
-fi
-
-if ! docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; then
-	echo "paco: building the runner image (first run only, this takes a few minutes)..." >&2
-	docker build -t "$IMAGE_NAME" "$SCRIPT_DIR"
-fi
-
-mkdir -p "$SCRIPT_DIR/logs" "$SCRIPT_DIR/temp"
-
-container_exists() {
-	docker ps -a --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"
-}
-container_running() {
-	docker ps --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"
 }
 
-if ! container_running; then
-	if container_exists; then
-		docker start "$CONTAINER_NAME" >/dev/null
+# Runs as your own user (no root-owned files left in your projects or in
+# paco's folder), with $HOME, /goinfre and /sgoinfre visible at the same paths.
+RUN_FLAGS=()
+set_run_flags() {
+	RUN_FLAGS=(--user "$(id -u):$(id -g)" -e HOME=/tmp -e "TERM=${TERM:-xterm-256color}"
+		-v "$PACO_DIR/logs:/francinette/logs" -v "$PACO_DIR/temp:/francinette/temp")
+}
+
+ensure_container() {
+	local image_id container_image
+	image_id="$(docker image inspect -f '{{.Id}}' "$IMAGE")"
+	container_image="$(docker container inspect -f '{{.Image}}' "$CONTAINER" 2>/dev/null || true)"
+	if [ -n "$container_image" ] && [ "$container_image" != "$image_id" ]; then
+		docker rm -f "$CONTAINER" >/dev/null 2>&1
+		container_image=""
+	fi
+	if [ -z "$container_image" ]; then
+		local mounts=(-v "$HOME:$HOME")
+		[ -d /goinfre ] && mounts+=(-v /goinfre:/goinfre)
+		[ -d /sgoinfre ] && mounts+=(-v /sgoinfre:/sgoinfre)
+		set_run_flags
+		docker run -d --name "$CONTAINER" --init "${RUN_FLAGS[@]}" "${mounts[@]}" \
+			--entrypoint sleep "$IMAGE" infinity >/dev/null
+	elif [ "$(docker container inspect -f '{{.State.Running}}' "$CONTAINER")" != "true" ]; then
+		docker start "$CONTAINER" >/dev/null
+	fi
+}
+
+run_docker() {
+	docker_ready
+	ensure_image
+	mkdir -p "$PACO_DIR/logs" "$PACO_DIR/temp"
+
+	local tty=(-i)
+	[ -t 0 ] && [ -t 1 ] && tty=(-it)
+
+	case "$PWD/" in
+		"$HOME"/*|/goinfre/*|/sgoinfre/*)
+			ensure_container
+			exec docker exec "${tty[@]}" -e "TERM=${TERM:-xterm-256color}" --workdir "$PWD" \
+				"$CONTAINER" python3 /francinette/main.py "$@"
+			;;
+		*)
+			# Outside the folders the runner container sees: a one-off container
+			# with just this project mounted.
+			set_run_flags
+			exec docker run --rm "${tty[@]}" "${RUN_FLAGS[@]}" -v "$PWD:$PWD" --workdir "$PWD" "$IMAGE" "$@"
+			;;
+	esac
+}
+
+run_native() {
+	[ -f "$FRANCINETTE_DIR/main.py" ] || die "francinette is missing from $FRANCINETTE_DIR. Run 'paco --rebuild'."
+	local python=python3
+	if [ -x "$PACO_DIR/venv/bin/python" ]; then
+		python="$PACO_DIR/venv/bin/python"
+		export PATH="$PACO_DIR/venv/bin:$PATH" # norminette, and `python` for war-machine
+	elif ! command -v python >/dev/null 2>&1; then
+		mkdir -p "$PACO_DIR/bin" && ln -sf "$(command -v python3)" "$PACO_DIR/bin/python"
+		export PATH="$PACO_DIR/bin:$HOME/.local/bin:$PATH"
 	else
-		mount_args=(-v "$HOME:$HOME")
-		[ -d /goinfre ] && mount_args+=(-v /goinfre:/goinfre)
-		[ -d /sgoinfre ] && mount_args+=(-v /sgoinfre:/sgoinfre)
-		docker run -d \
-			--name "$CONTAINER_NAME" \
-			"${mount_args[@]}" \
-			-v "$SCRIPT_DIR/logs:/francinette/logs" \
-			-v "$SCRIPT_DIR/temp:/francinette/temp" \
-			--entrypoint /bin/sleep \
-			"$IMAGE_NAME" infinity >/dev/null
+		export PATH="$HOME/.local/bin:$PATH"
 	fi
-fi
+	export TERM="${TERM:-xterm-256color}"
+	exec "$python" "$FRANCINETTE_DIR/main.py" "$@"
+}
 
-case "$PWD" in
-	"$HOME"/*|"$HOME") ;;
-	/goinfre/*|/sgoinfre/*) ;;
-	*)
-		echo "paco: warning: $PWD is outside \$HOME (and outside /goinfre, /sgoinfre)," >&2
-		echo "      it is not visible inside the container. Run paco from a project under \$HOME." >&2
+case "${1:-}" in
+	-u|--update)
+		exec bash "$PACO_DIR/update.sh"
+		;;
+	--rebuild)
+		exec bash "$PACO_DIR/rebuild.sh"
+		;;
+	--prepare)
+		# used by install.sh/update.sh: build the image now if it is missing or outdated
+		[ "$MODE" = "docker" ] && { docker_ready; ensure_image; }
+		exit 0
+		;;
+	--build-image)
+		# used by rebuild.sh: rebuild from scratch, no layer cache
+		docker_ready
+		build_image --no-cache
+		exit 0
+		;;
+	--uninstall)
+		INSTALL_DIR="$INSTALL_DIR" exec bash "$PACO_DIR/uninstall.sh"
+		;;
+	--version)
+		echo "paco $(version), $MODE mode"
+		exit 0
 		;;
 esac
 
-exec_flags=(-i)
-if [ -t 0 ] && [ -t 1 ]; then
-	exec_flags=(-it)
+if [ "$MODE" = "native" ]; then
+	run_native "$@"
+else
+	run_docker "$@"
 fi
-
-exec docker exec "${exec_flags[@]}" --workdir "$PWD" "$CONTAINER_NAME" python3 /francinette/main.py "$@"
